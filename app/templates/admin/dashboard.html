@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <div class="row-between">
+      <h2>Admin Control Room</h2>
+      <a class="btn btn-outline" href="{{ url_for('admin.admin_logout') }}">Logout</a>
+    </div>
+    <p>Phase: <span class="badge" id="phaseText">{{ state.phase }}</span></p>
+
+    <div class="grid-2">
+      <form id="phaseForm" class="inline-form">
+        <label>Set Phase</label>
+        <select name="phase">
+          <option value="phase_a_silver_gold">Phase A: Silver first, then Gold</option>
+          <option value="phase_a_break">Mid Break (Trades)</option>
+          <option value="phase_a_platinum">Phase A: Platinum</option>
+          <option value="phase_b">Phase B (Unsold @200)</option>
+        </select>
+        <button class="btn" type="submit">Update Phase</button>
+      </form>
+      <div class="stack-sm">
+        <button class="btn" id="nominateBtn">Sell Current + Nominate Next</button>
+        <button class="btn btn-outline" id="closeBtn">Close Current Lot</button>
+        <button class="btn btn-danger" id="completeBtn">Complete Draft + Penalties</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Current Nomination</h3>
+    {% if state.current_player %}
+      <p><strong>Player:</strong> {{ state.current_player.name }}</p>
+      <p><strong>Tier:</strong> {{ state.current_player.tier|title }}</p>
+      <p><strong>Base Price:</strong> {{ state.current_player.base_price }}</p>
+      <p><strong>Highest Bid:</strong> {{ state.current_player.current_bid }}</p>
+      <p><strong>Highest Bidder:</strong> {{ state.current_player.current_bidder_team_name or '-' }}</p>
+    {% else %}
+      <p>No player is currently nominated.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Create Manager Credentials</h3>
+    <form id="managerForm" class="grid-2">
+      <input name="username" placeholder="username" required>
+      <input name="display_name" placeholder="manager name" required>
+      <input name="team_name" placeholder="team name" required>
+      <select name="manager_tier">
+        <option value="silver">Silver Manager</option>
+        <option value="gold">Gold Manager</option>
+        <option value="platinum">Platinum Manager</option>
+      </select>
+      <button class="btn" type="submit">Create Manager</button>
+    </form>
+    <p id="credResult" class="mono"></p>
+  </div>
+
+  <div class="card">
+    <h3>Add Player</h3>
+    <form method="post" action="{{ url_for('admin.add_player') }}" class="grid-2">
+      <input name="name" placeholder="player name" required>
+      <select name="tier">
+        <option value="silver">Silver</option>
+        <option value="gold">Gold</option>
+        <option value="platinum">Platinum</option>
+      </select>
+      <button class="btn" type="submit">Add Player</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Public Budget Board</h3>
+    <div class="table-wrap">
+      <table id="teamTable">
+        <thead>
+          <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+        </thead>
+        <tbody>
+        {% for t in state.public_budget_board %}
+          <tr>
+            <td>{{ t.team_name }}</td>
+            <td>{{ t.purse_remaining }}</td>
+            <td>{{ t.credits_remaining }}</td>
+            <td>{{ t.active_count }}</td>
+            <td>{{ t.bench_count }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Players</h3>
+    <div class="table-wrap">
+      <table id="playerTable">
+        <thead>
+          <tr><th>Name</th><th>Tier</th><th>Base</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+        </thead>
+        <tbody>
+        {% for p in state.players %}
+          <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.tier }}</td>
+            <td>{{ p.base_price }}</td>
+            <td>{{ p.status }}</td>
+            <td>{{ p.current_bid }}</td>
+            <td>{{ p.sold_to or '-' }}</td>
+            <td>{{ p.sold_price }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

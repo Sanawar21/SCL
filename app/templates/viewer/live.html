@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <div class="row-between">
+      <h2>Live Draft</h2>
+      <span class="badge" id="phaseBadge">{{ state.phase }}</span>
+    </div>
+    <div id="currentPlayerWrap">
+      {% if state.current_player %}
+      <div class="lot">
+        <h3>{{ state.current_player.name }} ({{ state.current_player.tier }})</h3>
+        <p>Base {{ state.current_player.base_price }} | Current {{ state.current_player.current_bid }}</p>
+        <p>Highest Bidder: {{ state.current_player.current_bidder_team_name or '-' }}</p>
+      </div>
+      {% else %}
+      <p>No player currently nominated.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Public Budget Board</h3>
+    <div class="table-wrap">
+      <table id="budgetTable">
+        <thead>
+          <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+        </thead>
+        <tbody>
+          {% for t in state.public_budget_board %}
+          <tr>
+            <td>{{ t.team_name }}</td>
+            <td>{{ t.purse_remaining }}</td>
+            <td>{{ t.credits_remaining }}</td>
+            <td>{{ t.active_count }}</td>
+            <td>{{ t.bench_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live.js') }}"></script>
+{% endblock %}

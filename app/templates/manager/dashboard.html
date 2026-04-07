@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <div class="row-between">
+      <h2>Manager Dashboard</h2>
+      <a class="btn btn-outline" href="{{ url_for('manager.logout') }}">Logout</a>
+    </div>
+    <p>Phase: <span class="badge" id="phaseBadge">{{ state.phase }}</span></p>
+    <div class="chip-row">
+      <span class="chip">Team: {{ my_team.name }}</span>
+      <span class="chip">Purse: <strong id="myPurse">{{ my_team.purse_remaining }}</strong></span>
+      <span class="chip">Credits: <strong id="myCredits">{{ my_team.credits_remaining }}</strong></span>
+      <span class="chip">Active Bought: <strong id="myActive">{{ my_team.players|length }}</strong>/3</span>
+      <span class="chip">Bench: <strong id="myBench">{{ my_team.bench|length }}</strong></span>
+    </div>
+  </div>
+
+  <div class="card" id="lotCard">
+    <h3>Current Lot</h3>
+    {% if state.current_player %}
+      <p id="lotTitle">{{ state.current_player.name }} ({{ state.current_player.tier }})</p>
+      <p>Base: <span id="lotBase">{{ state.current_player.base_price }}</span></p>
+      <p>Current: <span id="lotCurrent">{{ state.current_player.current_bid }}</span></p>
+      <p>Highest Bidder: <span id="lotBidder">{{ state.current_player.current_bidder_team_name or '-' }}</span></p>
+    {% else %}
+      <p id="lotTitle">No player nominated</p>
+      <p>Base: <span id="lotBase">-</span></p>
+      <p>Current: <span id="lotCurrent">0</span></p>
+      <p>Highest Bidder: <span id="lotBidder">-</span></p>
+    {% endif %}
+
+    <div class="quick-actions">
+      <button class="btn btn-outline" id="passBtn">Pass</button>
+      <button class="btn" data-add="50">+50</button>
+      <button class="btn" data-add="100">+100</button>
+      <button class="btn" data-add="200">+200</button>
+      <button class="btn btn-outline" id="baseBidBtn">Base Bid</button>
+      <button class="btn btn-secondary" id="flat200Btn">Buy Unsold @200</button>
+    </div>
+
+    <form id="bidForm" class="inline-form">
+      <input id="bidAmount" name="amount" type="number" min="1" placeholder="Bid amount" required>
+      <button class="btn" type="submit">Place Bid</button>
+    </form>
+    <p id="bidMsg"></p>
+  </div>
+
+  <div class="card">
+    <h3>Break Trades and Transfers</h3>
+    <p>Use only during phase_a_break. Requested player is optional for one-way transfer.</p>
+    <form id="tradeForm" class="grid-2">
+      <label>
+        Offer My Player
+        <select name="offered_player_id" required>
+          {% for pid in my_team.players %}
+            {% for p in state.players %}
+              {% if p.id == pid %}
+              <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }})</option>
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Target Team
+        <select name="to_team_id" required>
+          {% for t in state.teams %}
+            {% if t.id != my_team.id %}
+            <option value="{{ t.id }}">{{ t.name }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Request Their Player (optional)
+        <select name="requested_player_id">
+          <option value="">No requested player (transfer)</option>
+          {% for p in state.players %}
+            {% if p.status == 'sold' and p.sold_to != my_team.id %}
+            <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }})</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+
+      <button class="btn" type="submit">Submit Trade</button>
+    </form>
+    <p id="tradeMsg"></p>
+  </div>
+
+  <div class="card">
+    <h3>Public Budget Board</h3>
+    <div class="table-wrap">
+      <table id="budgetTable">
+        <thead>
+          <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+        </thead>
+        <tbody>
+        {% for t in state.public_budget_board %}
+          <tr>
+            <td>{{ t.team_name }}</td>
+            <td>{{ t.purse_remaining }}</td>
+            <td>{{ t.credits_remaining }}</td>
+            <td>{{ t.active_count }}</td>
+            <td>{{ t.bench_count }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script id="initialState" type="application/json">{{ state|tojson }}</script>
+<script src="{{ url_for('static', filename='js/manager.js') }}"></script>
+{% endblock %}

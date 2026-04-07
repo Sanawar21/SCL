@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card form-card">
+  <h2>Administrator Login</h2>
+  <p>Default: admin / admin123</p>
+  <form method="post" action="{{ url_for('admin.admin_login') }}">
+    <label>Username</label>
+    <input name="username" required>
+    <label>Password</label>
+    <input type="password" name="password" required>
+    <button class="btn" type="submit">Login</button>
+  </form>
+</section>
+{% endblock %}

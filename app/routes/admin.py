@@ -102,6 +102,19 @@ def set_phase():
     if phase not in {PHASE_A_SG, PHASE_A_BREAK, PHASE_A_P, PHASE_B}:
         return jsonify({"ok": False, "error": "Invalid phase"}), 400
     auction_service = current_app.extensions["auction_service"]
+    state = auction_service.get_state()
+    if phase == PHASE_B and not state.get("phase_b_readiness", {}).get("can_enter_phase_b", False):
+        readiness = state.get("phase_b_readiness", {})
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    "Phase B cannot start until unsold players are greater than the number "
+                    "needed to fill incomplete teams"
+                ),
+                "phase_b_readiness": readiness,
+            }
+        ), 400
     auction_service.set_phase(phase)
     socketio.emit("state_update", auction_service.get_state())
     return jsonify({"ok": True})
@@ -143,6 +156,9 @@ def close_current():
 @login_required(role=ROLE_ADMIN)
 def complete_draft():
     auction_service = current_app.extensions["auction_service"]
+    state = auction_service.get_state()
+    if state.get("phase") != PHASE_B:
+        return jsonify({"ok": False, "error": "Complete Draft + Penalties is only allowed during Phase B"}), 400
     auction_service.complete_phase_b_with_penalties()
     socketio.emit("state_update", auction_service.get_state())
     return jsonify({"ok": True})

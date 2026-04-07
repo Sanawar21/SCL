@@ -86,9 +86,43 @@
         </select>
       </label>
 
+      <label>
+        You pay target team (optional)
+        <input type="number" min="0" name="cash_from_initiator" value="0">
+      </label>
+
+      <label>
+        Target pays you (optional)
+        <input type="number" min="0" name="cash_from_target" value="0">
+      </label>
+
       <button class="btn" type="submit">Submit Trade</button>
     </form>
     <p id="tradeMsg"></p>
+  </div>
+
+  <div class="card">
+    <h3>Incoming Trade Requests</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>From</th><th>Offer</th><th>Request</th><th>Cash Terms</th><th>Action</th></tr>
+        </thead>
+        <tbody id="incomingTradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>My Trade Requests</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>To</th><th>Offer</th><th>Request</th><th>Cash Terms</th><th>Status</th></tr>
+        </thead>
+        <tbody id="outgoingTradesBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -106,6 +140,29 @@
             <td>{{ t.credits_remaining }}</td>
             <td>{{ t.active_count }}</td>
             <td>{{ t.bench_count }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Players List</h3>
+    <div class="table-wrap">
+      <table id="playersTable">
+        <thead>
+          <tr><th>Name</th><th>Tier</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+        </thead>
+        <tbody>
+        {% for p in state.players %}
+          <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.tier }}</td>
+            <td>{{ p.status }}</td>
+            <td>{{ p.current_bid }}</td>
+            <td>{{ p.sold_to_team_name or '-' }}</td>
+            <td>{{ p.sold_price }}</td>
           </tr>
         {% endfor %}
         </tbody>

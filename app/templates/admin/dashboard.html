@@ -28,6 +28,13 @@
   </div>
 
   <div class="card">
+    <h3>Phase B Readiness</h3>
+    <p><strong>Unsold players:</strong> {{ state.phase_b_readiness.unsold_players }}</p>
+    <p><strong>Players needed to fill incomplete teams:</strong> {{ state.phase_b_readiness.incomplete_fill_needed }}</p>
+    <p><strong>Can enter Phase B:</strong> {{ 'Yes' if state.phase_b_readiness.can_enter_phase_b else 'No' }}</p>
+  </div>
+
+  <div class="card">
     <h3>Current Nomination</h3>
     {% if state.current_player %}
       <p><strong>Player:</strong> {{ state.current_player.name }}</p>
@@ -106,7 +113,7 @@
             <td>{{ p.base_price }}</td>
             <td>{{ p.status }}</td>
             <td>{{ p.current_bid }}</td>
-            <td>{{ p.sold_to or '-' }}</td>
+            <td>{{ p.sold_to_team_name or '-' }}</td>
             <td>{{ p.sold_price }}</td>
           </tr>
         {% endfor %}

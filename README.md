@@ -12,7 +12,7 @@ Mobile-first Flask + TinyDB auction dashboard for Small Cricket League.
 - Public visibility of purse remaining and credits remaining.
 - Auction rules enforced:
   - Team active composition is 4 including manager, so each team buys 3 players.
-  - Team cap uses credits with manager-tier deduction from total 10 credits.
+  - Team cap uses credits with manager-tier deduction from total 8 credits.
   - Manager purse by tier: Platinum 4000, Gold 4800, Silver 5500.
   - Phase A sequence support: Silver+Gold, break, Platinum.
   - Break phase supports manager trades and one-way transfers for already won players.

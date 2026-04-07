@@ -40,6 +40,29 @@
       </table>
     </div>
   </div>
+
+  <div class="card">
+    <h3>Players List</h3>
+    <div class="table-wrap">
+      <table id="playersTable">
+        <thead>
+          <tr><th>Name</th><th>Tier</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+        </thead>
+        <tbody>
+          {% for p in state.players %}
+          <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.tier }}</td>
+            <td>{{ p.status }}</td>
+            <td>{{ p.current_bid }}</td>
+            <td>{{ p.sold_to_team_name or '-' }}</td>
+            <td>{{ p.sold_price }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </section>
 {% endblock %}
 {% block scripts %}

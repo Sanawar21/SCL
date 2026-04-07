@@ -24,6 +24,15 @@ function renderState(state) {
       )
       .join("");
   }
+
+  const playersBody = document.querySelector("#playersTable tbody");
+  if (playersBody) {
+    playersBody.innerHTML = state.players
+      .map(
+        (p) => `<tr><td>${p.name}</td><td>${p.tier}</td><td>${p.status}</td><td>${p.current_bid}</td><td>${p.sold_to_team_name || "-"}</td><td>${p.sold_price}</td></tr>`
+      )
+      .join("");
+  }
 }
 
 socket.on("state_update", (state) => {

@@ -134,6 +134,19 @@
       "current_bid": 0,
       "current_bidder_team_id": null
     },
+    "13": {
+      "id": "c36e19e88f7d0d47",
+      "name": "Moiz",
+      "tier": "gold",
+      "base_price": 800,
+      "status": "unsold",
+      "sold_to": null,
+      "sold_price": 0,
+      "phase_sold": null,
+      "credits": 3,
+      "current_bid": 0,
+      "current_bidder_team_id": null
+    },
     "8": {
       "id": "84667e6c8bd740e3",
       "name": "Yousuf",

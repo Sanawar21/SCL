@@ -113,6 +113,10 @@ class AuctionService:
             teams = db.table("teams").all()
             teams_by_id = {t["id"]: t for t in teams}
             players = db.table("players").all()
+            for p in players:
+                sold_to_id = p.get("sold_to")
+                sold_to_team = teams_by_id.get(sold_to_id) if sold_to_id else None
+                p["sold_to_team_name"] = sold_to_team.get("name") if sold_to_team else "-"
             bids = db.table("bids").all()[-25:]
             current_player = None
             if meta.get("current_player_id"):
@@ -121,12 +125,24 @@ class AuctionService:
                     bidder_id = current_player.get("current_bidder_team_id")
                     bidder_team = teams_by_id.get(bidder_id) if bidder_id else None
                     current_player["current_bidder_team_name"] = bidder_team.get("name") if bidder_team else "-"
+            incomplete_fill_needed = sum(
+                max(0, REQUIRED_ACTIVE_PLAYERS - len(t.get("players", [])))
+                for t in teams
+                if len(t.get("players", [])) < REQUIRED_ACTIVE_PLAYERS
+            )
+            unsold_players = sum(1 for p in players if p.get("status") == "unsold")
+            can_enter_phase_b = unsold_players > incomplete_fill_needed
             return {
                 "phase": meta["phase"],
                 "current_player": current_player,
                 "teams": teams,
                 "players": players,
                 "bids": bids,
+                "phase_b_readiness": {
+                    "unsold_players": unsold_players,
+                    "incomplete_fill_needed": incomplete_fill_needed,
+                    "can_enter_phase_b": can_enter_phase_b,
+                },
                 "public_budget_board": [
                     {
                         "team_name": t["name"],
@@ -341,7 +357,15 @@ class AuctionService:
 
             db.table("meta").update({"phase": PHASE_COMPLETE, "current_player_id": None}, doc_ids=[1])
 
-    def trade_players(self, from_team_id: str, to_team_id: str, offered_player_id: str, requested_player_id: str | None = None):
+    def request_trade(
+        self,
+        from_team_id: str,
+        to_team_id: str,
+        offered_player_id: str,
+        requested_player_id: str | None = None,
+        cash_from_initiator: int = 0,
+        cash_from_target: int = 0,
+    ):
         Team = Query()
         with self.store.write() as db:
             phase = self._get_meta(db).get("phase")
@@ -350,7 +374,7 @@ class AuctionService:
 
             teams_table = db.table("teams")
             players_table = db.table("players")
-            trades_table = db.table("trades")
+            trade_requests = db.table("trade_requests")
 
             from_team = teams_table.get(Team.id == from_team_id)
             to_team = teams_table.get(Team.id == to_team_id)
@@ -366,6 +390,91 @@ class AuctionService:
             if requested_player_id:
                 if requested_player_id not in to_players:
                     raise ValueError("Requested player is not owned by target team")
+            cash_from_initiator = max(0, int(cash_from_initiator or 0))
+            cash_from_target = max(0, int(cash_from_target or 0))
+
+            trade_id = secrets.token_hex(8)
+            trade_requests.insert(
+                {
+                    "id": trade_id,
+                    "status": "pending",
+                    "created_at": datetime.utcnow().isoformat(),
+                    "from_team_id": from_team_id,
+                    "to_team_id": to_team_id,
+                    "offered_player_id": offered_player_id,
+                    "requested_player_id": requested_player_id,
+                    "cash_from_initiator": cash_from_initiator,
+                    "cash_from_target": cash_from_target,
+                }
+            )
+
+            return {
+                "id": trade_id,
+                "status": "pending",
+                "from_team_id": from_team_id,
+                "to_team_id": to_team_id,
+                "offered_player_id": offered_player_id,
+                "requested_player_id": requested_player_id,
+                "cash_from_initiator": cash_from_initiator,
+                "cash_from_target": cash_from_target,
+            }
+
+    def respond_trade(self, trade_id: str, target_team_id: str, action: str):
+        Team = Query()
+        Trade = Query()
+        Player = Query()
+        with self.store.write() as db:
+            phase = self._get_meta(db).get("phase")
+            if phase != PHASE_A_BREAK:
+                raise ValueError("Trade responses are allowed only during the Phase A break")
+
+            teams_table = db.table("teams")
+            players_table = db.table("players")
+            trade_requests = db.table("trade_requests")
+
+            trade = trade_requests.get(Trade.id == trade_id)
+            if not trade:
+                raise ValueError("Trade request not found")
+            if trade.get("status") != "pending":
+                raise ValueError("Trade request is already resolved")
+            if trade.get("to_team_id") != target_team_id:
+                raise ValueError("Only the target manager can respond to this trade")
+
+            if action == "reject":
+                trade_requests.update(
+                    {
+                        "status": "rejected",
+                        "responded_at": datetime.utcnow().isoformat(),
+                        "responded_by_team_id": target_team_id,
+                    },
+                    Trade.id == trade_id,
+                )
+                return {"id": trade_id, "status": "rejected"}
+
+            if action != "accept":
+                raise ValueError("Invalid action")
+
+            from_team_id = trade["from_team_id"]
+            to_team_id = trade["to_team_id"]
+            offered_player_id = trade["offered_player_id"]
+            requested_player_id = trade.get("requested_player_id")
+            cash_from_initiator = int(trade.get("cash_from_initiator", 0))
+            cash_from_target = int(trade.get("cash_from_target", 0))
+
+            from_team = teams_table.get(Team.id == from_team_id)
+            to_team = teams_table.get(Team.id == to_team_id)
+            if not from_team or not to_team:
+                raise ValueError("Teams no longer available")
+
+            from_players = list(from_team.get("players", []))
+            to_players = list(to_team.get("players", []))
+
+            if offered_player_id not in from_players:
+                raise ValueError("Offered player is no longer owned by initiator")
+
+            if requested_player_id:
+                if requested_player_id not in to_players:
+                    raise ValueError("Requested player is no longer owned by target")
                 from_players.remove(offered_player_id)
                 to_players.remove(requested_player_id)
                 from_players.append(requested_player_id)
@@ -380,31 +489,72 @@ class AuctionService:
             from_credits = self._recalculate_team_credits(db, from_updated)
             to_credits = self._recalculate_team_credits(db, to_updated)
             if from_credits < 0 or to_credits < 0:
-                raise ValueError("Trade violates 10-credit team limit")
+                raise ValueError("Trade violates 8-credit team limit")
 
-            teams_table.update({"players": from_players, "credits_remaining": from_credits}, Team.id == from_team_id)
-            teams_table.update({"players": to_players, "credits_remaining": to_credits}, Team.id == to_team_id)
+            from_purse = int(from_team.get("purse_remaining", 0))
+            to_purse = int(to_team.get("purse_remaining", 0))
+            from_purse_after = from_purse - cash_from_initiator + cash_from_target
+            to_purse_after = to_purse - cash_from_target + cash_from_initiator
+            if from_purse_after < 0 or to_purse_after < 0:
+                raise ValueError("Trade cash transfer exceeds available purse")
 
-            players_table.update({"sold_to": to_team_id}, Query().id == offered_player_id)
-            if requested_player_id:
-                players_table.update({"sold_to": from_team_id}, Query().id == requested_player_id)
-
-            trades_table.insert(
+            teams_table.update(
                 {
-                    "ts": datetime.utcnow().isoformat(),
-                    "from_team_id": from_team_id,
-                    "to_team_id": to_team_id,
-                    "offered_player_id": offered_player_id,
-                    "requested_player_id": requested_player_id,
-                }
+                    "players": from_players,
+                    "credits_remaining": from_credits,
+                    "purse_remaining": from_purse_after,
+                },
+                Team.id == from_team_id,
+            )
+            teams_table.update(
+                {
+                    "players": to_players,
+                    "credits_remaining": to_credits,
+                    "purse_remaining": to_purse_after,
+                },
+                Team.id == to_team_id,
             )
 
-            return {
-                "from_team_id": from_team_id,
-                "to_team_id": to_team_id,
-                "offered_player_id": offered_player_id,
-                "requested_player_id": requested_player_id,
-            }
+            players_table.update({"sold_to": to_team_id}, Player.id == offered_player_id)
+            if requested_player_id:
+                players_table.update({"sold_to": from_team_id}, Player.id == requested_player_id)
+
+            trade_requests.update(
+                {
+                    "status": "accepted",
+                    "responded_at": datetime.utcnow().isoformat(),
+                    "responded_by_team_id": target_team_id,
+                },
+                Trade.id == trade_id,
+            )
+
+            return {"id": trade_id, "status": "accepted"}
+
+    def get_trade_requests_for_team(self, team_id: str):
+        Trade = Query()
+        with self.store.read() as db:
+            requests = db.table("trade_requests").search(
+                (Trade.from_team_id == team_id) | (Trade.to_team_id == team_id)
+            )
+            players_by_id = {p["id"]: p for p in db.table("players").all()}
+            teams_by_id = {t["id"]: t for t in db.table("teams").all()}
+
+            def enrich(item):
+                offered = players_by_id.get(item.get("offered_player_id"), {})
+                requested = players_by_id.get(item.get("requested_player_id"), {}) if item.get("requested_player_id") else None
+                from_team = teams_by_id.get(item.get("from_team_id"), {})
+                to_team = teams_by_id.get(item.get("to_team_id"), {})
+                return {
+                    **item,
+                    "offered_player_name": offered.get("name", "Unknown"),
+                    "requested_player_name": requested.get("name", "-") if requested else "-",
+                    "from_team_name": from_team.get("name", "Unknown"),
+                    "to_team_name": to_team.get("name", "Unknown"),
+                }
+
+            incoming = [enrich(r) for r in requests if r.get("to_team_id") == team_id and r.get("status") == "pending"]
+            outgoing = [enrich(r) for r in requests if r.get("from_team_id") == team_id]
+            return {"incoming": incoming, "outgoing": outgoing}
 
     def get_team_by_username(self, username: str):
         with self.store.read() as db:

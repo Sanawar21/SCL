@@ -17,6 +17,73 @@ function toInt(v) {
   return Number.parseInt(v, 10) || 0;
 }
 
+function cashTerms(tr) {
+  const pay = toInt(tr.cash_from_initiator);
+  const receive = toInt(tr.cash_from_target);
+  const parts = [];
+  if (pay > 0) parts.push(`Initiator->Target: ${pay}`);
+  if (receive > 0) parts.push(`Target->Initiator: ${receive}`);
+  return parts.length ? parts.join(" | ") : "No cash";
+}
+
+function wireTradeActions() {
+  document.querySelectorAll(".trade-action").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const tradeId = btn.getAttribute("data-trade-id");
+      const action = btn.getAttribute("data-action");
+      const fd = new FormData();
+      fd.append("trade_id", tradeId);
+      fd.append("action", action);
+      const res = await fetch("/manager/trade/respond", { method: "POST", body: fd });
+      const data = await res.json();
+      tradeMsg.textContent = data.ok ? `Trade ${action}ed` : `Trade ${action} failed: ${data.error}`;
+    });
+  });
+}
+
+function renderTradeTables(managerState) {
+  const incomingBody = document.getElementById("incomingTradesBody");
+  const outgoingBody = document.getElementById("outgoingTradesBody");
+  const trades = managerState.trade_requests || { incoming: [], outgoing: [] };
+
+  if (incomingBody) {
+    incomingBody.innerHTML = trades.incoming.length
+      ? trades.incoming
+          .map(
+            (tr) => `<tr>
+              <td>${tr.from_team_name}</td>
+              <td>${tr.offered_player_name}</td>
+              <td>${tr.requested_player_name || "-"}</td>
+              <td>${cashTerms(tr)}</td>
+              <td>
+                <button class="btn trade-action" data-action="accept" data-trade-id="${tr.id}">Accept</button>
+                <button class="btn btn-outline trade-action" data-action="reject" data-trade-id="${tr.id}">Reject</button>
+              </td>
+            </tr>`
+          )
+          .join("")
+      : "<tr><td colspan=\"5\">No incoming requests</td></tr>";
+  }
+
+  if (outgoingBody) {
+    outgoingBody.innerHTML = trades.outgoing.length
+      ? trades.outgoing
+          .map(
+            (tr) => `<tr>
+              <td>${tr.to_team_name}</td>
+              <td>${tr.offered_player_name}</td>
+              <td>${tr.requested_player_name || "-"}</td>
+              <td>${cashTerms(tr)}</td>
+              <td>${tr.status}</td>
+            </tr>`
+          )
+          .join("")
+      : "<tr><td colspan=\"5\">No outgoing requests</td></tr>";
+  }
+
+  wireTradeActions();
+}
+
 function refreshView(state) {
   latestState = state;
   document.getElementById("phaseBadge").textContent = state.phase;
@@ -44,6 +111,17 @@ function refreshView(state) {
           (t) => `<tr><td>${t.team_name}</td><td>${t.purse_remaining}</td><td>${t.credits_remaining}</td><td>${t.active_count}</td><td>${t.bench_count}</td></tr>`
         )
         .join("");
+
+      const playersBody = document.querySelector("#playersTable tbody");
+      if (playersBody) {
+        playersBody.innerHTML = managerState.players
+          .map(
+            (p) => `<tr><td>${p.name}</td><td>${p.tier}</td><td>${p.status}</td><td>${p.current_bid}</td><td>${p.sold_to_team_name || "-"}</td><td>${p.sold_price}</td></tr>`
+          )
+          .join("");
+      }
+
+      renderTradeTables(managerState);
     });
 }
 
@@ -103,3 +181,5 @@ if (tradeForm) {
 socket.on("state_update", (state) => {
   refreshView(state);
 });
+
+refreshView(latestState);

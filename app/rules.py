@@ -1,6 +1,6 @@
 TIER_CREDIT_COST = {
-    "platinum": 4,
-    "gold": 3,
+    "platinum": 3,
+    "gold": 2,
     "silver": 1,
 }
 
@@ -16,7 +16,7 @@ TIER_BASE_PRICE = {
     "silver": 400,
 }
 
-TOTAL_CREDITS = 10
+TOTAL_CREDITS = 8
 # Team has 4 active including manager, so each team must buy 3 players.
 REQUIRED_ACTIVE_PLAYERS = 3
 PHASE_B_FLAT_PRICE = 200

@@ -25,6 +25,15 @@ function renderState(state) {
       .join("");
   }
 
+  const teamsBody = document.querySelector("#teamsTable tbody");
+  if (teamsBody) {
+    teamsBody.innerHTML = state.teams
+      .map(
+        (t) => `<tr><td>${t.name}</td><td>${t.manager_name || "-"}</td><td>${(t.player_labels || []).join(", ") || "-"}</td><td>${(t.bench_labels || []).join(", ") || "-"}</td></tr>`
+      )
+      .join("");
+  }
+
   const playersBody = document.querySelector("#playersTable tbody");
   if (playersBody) {
     playersBody.innerHTML = state.players

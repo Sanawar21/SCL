@@ -112,6 +112,12 @@ class AuctionService:
             meta = self._get_meta(db)
             teams = db.table("teams").all()
             teams_by_id = {t["id"]: t for t in teams}
+            users_by_team_id = {}
+            for user in db.table("users").all():
+                team_id = user.get("team_id")
+                if team_id:
+                    users_by_team_id[team_id] = user
+            players_by_id = {p["id"]: p for p in db.table("players").all()}
             players = db.table("players").all()
             for p in players:
                 sold_to_id = p.get("sold_to")
@@ -132,10 +138,37 @@ class AuctionService:
             )
             unsold_players = sum(1 for p in players if p.get("status") == "unsold")
             can_enter_phase_b = unsold_players > incomplete_fill_needed
+
+            enriched_teams = []
+            prefix_map = {"gold": "(G)", "silver": "(S)", "platinum": "(P)"}
+            for team in teams:
+                manager_user = users_by_team_id.get(team["id"])
+                player_labels = [
+                    f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
+                    for pid in team.get("players", [])
+                    if pid in players_by_id
+                ]
+                bench_labels = [
+                    f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
+                    for pid in team.get("bench", [])
+                    if pid in players_by_id
+                ]
+                enriched_teams.append(
+                    {
+                        **team,
+                        "manager_name": (
+                            f"{prefix_map.get(team.get('manager_tier'), '')} {manager_user.get('display_name', manager_user.get('username', '-'))}".strip()
+                            if manager_user
+                            else "-"
+                        ),
+                        "player_labels": player_labels,
+                        "bench_labels": bench_labels,
+                    }
+                )
             return {
                 "phase": meta["phase"],
                 "current_player": current_player,
-                "teams": teams,
+                "teams": enriched_teams,
                 "players": players,
                 "bids": bids,
                 "phase_b_readiness": {
@@ -342,7 +375,15 @@ class AuctionService:
                 unsold = unsold[needed:]
 
                 player_ids = team.get("players", []) + [p["id"] for p in assign]
-                teams.update({"players": player_ids, "purse_remaining": 0}, Team.id == team["id"])
+                updated_team = {**team, "players": player_ids}
+                teams.update(
+                    {
+                        "players": player_ids,
+                        "purse_remaining": 0,
+                        "credits_remaining": self._recalculate_team_credits(db, updated_team),
+                    },
+                    Team.id == team["id"],
+                )
 
                 for p in assign:
                     players.update(

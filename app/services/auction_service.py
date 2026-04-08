@@ -129,6 +129,7 @@ class AuctionService:
             meta = self._get_meta(db)
             teams = db.table("teams").all()
             teams_by_id = {t["id"]: t for t in teams}
+            managers = [u for u in db.table("users").all() if u.get("role") == "manager"]
             users_by_team_id = {}
             for user in db.table("users").all():
                 team_id = user.get("team_id")
@@ -209,6 +210,15 @@ class AuctionService:
                 "phase": meta["phase"],
                 "current_player": current_player,
                 "teams": enriched_teams,
+                "managers": [
+                    {
+                        "username": m.get("username"),
+                        "display_name": m.get("display_name", m.get("username", "")),
+                        "team_id": m.get("team_id"),
+                        "team_name": teams_by_id.get(m.get("team_id"), {}).get("name", "-"),
+                    }
+                    for m in managers
+                ],
                 "players": players,
                 "bids": enriched_bids,
                 "current_lot_bids": current_lot_bids,

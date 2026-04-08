@@ -7,6 +7,8 @@ const nominateBtn = document.getElementById("nominateBtn");
 const previousBtn = document.getElementById("previousBtn");
 const closeBtn = document.getElementById("closeBtn");
 const completeBtn = document.getElementById("completeBtn");
+const adminDashboard = document.getElementById("adminDashboard");
+const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
 
 function wireDeleteBidButtons() {
   document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
@@ -32,9 +34,34 @@ function postForm(url, formData) {
   return fetch(url, { method: "POST", body: formData }).then((r) => r.json());
 }
 
+function ensureSetupPhase() {
+  if (isSetupPhase) {
+    return true;
+  }
+  alert("This action is only available during setup phase.");
+  return false;
+}
+
+function pickTier(defaultTier) {
+  const value = (prompt("Enter tier (silver/gold/platinum)", defaultTier || "silver") || "")
+    .trim()
+    .toLowerCase();
+  if (!value) {
+    return null;
+  }
+  if (!["silver", "gold", "platinum"].includes(value)) {
+    alert("Tier must be one of: silver, gold, platinum.");
+    return null;
+  }
+  return value;
+}
+
 if (managerForm) {
   managerForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!ensureSetupPhase()) {
+      return;
+    }
     const data = new FormData(managerForm);
     const res = await postForm("/admin/create-manager", data);
     credResult.textContent = res.ok
@@ -96,6 +123,154 @@ if (completeBtn) {
 }
 
 wireDeleteBidButtons();
+
+document.querySelectorAll(".edit-player-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const playerId = btn.getAttribute("data-player-id");
+    const currentName = btn.getAttribute("data-player-name") || "";
+    const currentTier = btn.getAttribute("data-player-tier") || "silver";
+
+    const name = (prompt("Edit player name", currentName) || "").trim();
+    if (!name) {
+      return;
+    }
+    const tier = pickTier(currentTier);
+    if (!tier) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("player_id", playerId);
+    fd.append("name", name);
+    fd.append("tier", tier);
+
+    const res = await postForm("/admin/update-player", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to update player");
+    }
+  });
+});
+
+document.querySelectorAll(".delete-player-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const playerId = btn.getAttribute("data-player-id");
+    const name = btn.getAttribute("data-player-name") || "this player";
+    if (!confirm(`Delete player ${name}?`)) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("player_id", playerId);
+    const res = await postForm("/admin/delete-player", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to delete player");
+    }
+  });
+});
+
+document.querySelectorAll(".edit-manager-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const managerUsername = btn.getAttribute("data-username") || "";
+    const currentName = btn.getAttribute("data-display-name") || "";
+
+    const username = (prompt("Edit manager username", managerUsername) || "").trim();
+    if (!username) {
+      return;
+    }
+    const displayName = (prompt("Edit manager display name", currentName) || "").trim();
+    if (!displayName) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("manager_username", managerUsername);
+    fd.append("username", username);
+    fd.append("display_name", displayName);
+
+    const res = await postForm("/admin/update-manager", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to update manager");
+    }
+  });
+});
+
+document.querySelectorAll(".delete-manager-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const managerUsername = btn.getAttribute("data-username") || "";
+    if (!confirm(`Delete manager ${managerUsername} and linked team?`)) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("manager_username", managerUsername);
+    const res = await postForm("/admin/delete-manager", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to delete manager");
+    }
+  });
+});
+
+document.querySelectorAll(".edit-team-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const teamId = btn.getAttribute("data-team-id") || "";
+    const currentName = btn.getAttribute("data-team-name") || "";
+    const currentTier = btn.getAttribute("data-manager-tier") || "silver";
+
+    const teamName = (prompt("Edit team name", currentName) || "").trim();
+    if (!teamName) {
+      return;
+    }
+    const managerTier = pickTier(currentTier);
+    if (!managerTier) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("team_id", teamId);
+    fd.append("team_name", teamName);
+    fd.append("manager_tier", managerTier);
+
+    const res = await postForm("/admin/update-team", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to update team");
+    }
+  });
+});
+
+document.querySelectorAll(".delete-team-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!ensureSetupPhase()) {
+      return;
+    }
+    const teamId = btn.getAttribute("data-team-id") || "";
+    const teamName = btn.getAttribute("data-team-name") || "this team";
+    if (!confirm(`Delete team ${teamName} and linked manager?`)) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("team_id", teamId);
+    const res = await postForm("/admin/delete-team", fd);
+    if (!res.ok) {
+      alert(res.error || "Unable to delete team");
+    }
+  });
+});
 
 socket.on("state_update", () => {
   window.location.reload();

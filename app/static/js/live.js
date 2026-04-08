@@ -10,9 +10,23 @@ function renderState(state) {
   if (currentWrap) {
     if (state.current_player) {
       const p = state.current_player;
-      currentWrap.innerHTML = `<div class="lot"><h3>${p.name} (${p.tier})</h3><p>Base ${p.base_price} | Current ${p.current_bid}</p><p>Highest Bidder: ${p.current_bidder_team_name || "-"}</p></div>`;
+      currentWrap.innerHTML = `
+        <div class="lot-meta">
+          <div class="lot"><h3>${p.name} (${p.tier})</h3><p>Base ${p.base_price} | Current ${p.current_bid}</p><p>Highest Bidder: ${p.current_bidder_team_name || "-"}</p></div>
+        </div>
+        <div class="table-wrap lot-bids-wrap">
+          <table id="viewerCurrentBidsTable">
+            <thead><tr><th>Time</th><th>Team</th><th>Bid</th></tr></thead>
+            <tbody>
+              ${(state.current_lot_bids || [])
+                .slice()
+                .map((b) => `<tr><td>${b.ts_display || "-"}</td><td>${b.team_name || "-"}</td><td>${b.amount}</td></tr>`)
+                .join("")}
+            </tbody>
+          </table>
+        </div>`;
     } else {
-      currentWrap.innerHTML = "<p>No player currently nominated.</p>";
+      currentWrap.innerHTML = "<div class=\"lot-meta\"><p>No player currently nominated.</p></div><div class=\"table-wrap lot-bids-wrap\"><table id=\"viewerCurrentBidsTable\"><thead><tr><th>Time</th><th>Team</th><th>Bid</th></tr></thead><tbody></tbody></table></div>";
     }
   }
 

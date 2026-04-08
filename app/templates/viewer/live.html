@@ -6,16 +6,35 @@
       <h2>Live Draft</h2>
       <span class="badge" id="phaseBadge">{{ state.phase }}</span>
     </div>
-    <div id="currentPlayerWrap">
-      {% if state.current_player %}
-      <div class="lot">
-        <h3>{{ state.current_player.name }} ({{ state.current_player.tier }})</h3>
-        <p>Base {{ state.current_player.base_price }} | Current {{ state.current_player.current_bid }}</p>
-        <p>Highest Bidder: {{ state.current_player.current_bidder_team_name or '-' }}</p>
+    <div id="currentPlayerWrap" class="lot-top">
+      <div class="lot-meta">
+        {% if state.current_player %}
+        <div class="lot">
+          <h3>{{ state.current_player.name }} ({{ state.current_player.tier }})</h3>
+          <p>Base {{ state.current_player.base_price }} | Current {{ state.current_player.current_bid }}</p>
+          <p>Highest Bidder: {{ state.current_player.current_bidder_team_name or '-' }}</p>
+        </div>
+        {% else %}
+        <p>No player currently nominated.</p>
+        {% endif %}
       </div>
-      {% else %}
-      <p>No player currently nominated.</p>
-      {% endif %}
+
+      <div class="table-wrap lot-bids-wrap">
+        <table id="viewerCurrentBidsTable">
+          <thead>
+            <tr><th>Time</th><th>Team</th><th>Bid</th></tr>
+          </thead>
+          <tbody>
+          {% for b in state.current_lot_bids %}
+            <tr>
+              <td>{{ b.ts_display or '-' }}</td>
+              <td>{{ b.team_name or '-' }}</td>
+              <td>{{ b.amount }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 

@@ -4,8 +4,29 @@ const managerForm = document.getElementById("managerForm");
 const credResult = document.getElementById("credResult");
 const phaseForm = document.getElementById("phaseForm");
 const nominateBtn = document.getElementById("nominateBtn");
+const previousBtn = document.getElementById("previousBtn");
 const closeBtn = document.getElementById("closeBtn");
 const completeBtn = document.getElementById("completeBtn");
+
+function wireDeleteBidButtons() {
+  document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const bidId = btn.getAttribute("data-bid-id");
+      if (!bidId) {
+        return;
+      }
+      if (!confirm("Delete this bid from the current lot?")) {
+        return;
+      }
+      const fd = new FormData();
+      fd.append("bid_id", bidId);
+      const res = await postForm("/admin/delete-bid", fd);
+      if (!res.ok) {
+        alert(res.error || "Unable to delete bid");
+      }
+    });
+  });
+}
 
 function postForm(url, formData) {
   return fetch(url, { method: "POST", body: formData }).then((r) => r.json());
@@ -44,6 +65,15 @@ if (nominateBtn) {
   });
 }
 
+if (previousBtn) {
+  previousBtn.addEventListener("click", async () => {
+    const res = await postForm("/admin/previous-player", new FormData());
+    if (!res.ok) {
+      alert(res.error || "Unable to go to previous player");
+    }
+  });
+}
+
 if (closeBtn) {
   closeBtn.addEventListener("click", async () => {
     const res = await postForm("/admin/close-current", new FormData());
@@ -64,6 +94,8 @@ if (completeBtn) {
     }
   });
 }
+
+wireDeleteBidButtons();
 
 socket.on("state_update", () => {
   window.location.reload();

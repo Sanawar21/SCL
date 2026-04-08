@@ -21,6 +21,7 @@
       </form>
       <div class="stack-sm">
         <button class="btn" id="nominateBtn">Sell Current + Nominate Next</button>
+        <button class="btn btn-outline" id="previousBtn">Previous Player</button>
         <button class="btn btn-outline" id="closeBtn">Close Current Lot</button>
         <button class="btn btn-danger" id="completeBtn">Complete Draft + Penalties</button>
       </div>
@@ -28,23 +29,44 @@
   </div>
 
   <div class="card">
-    <h3>Phase B Readiness</h3>
-    <p><strong>Unsold players:</strong> {{ state.phase_b_readiness.unsold_players }}</p>
-    <p><strong>Players needed to fill incomplete teams:</strong> {{ state.phase_b_readiness.incomplete_fill_needed }}</p>
-    <p><strong>Can enter Phase B:</strong> {{ 'Yes' if state.phase_b_readiness.can_enter_phase_b else 'No' }}</p>
-  </div>
+    <div class="lot-top">
+      <div class="lot-meta">
+        <h3>Current Nomination</h3>
+        {% if state.current_player %}
+          <p><strong>Player:</strong> {{ state.current_player.name }}</p>
+          <p><strong>Tier:</strong> {{ state.current_player.tier|title }}</p>
+          <p><strong>Base Price:</strong> {{ state.current_player.base_price }}</p>
+          <p><strong>Highest Bid:</strong> {{ state.current_player.current_bid }}</p>
+          <p><strong>Highest Bidder:</strong> {{ state.current_player.current_bidder_team_name or '-' }}</p>
+        {% else %}
+          <p>No player is currently nominated.</p>
+        {% endif %}
+      </div>
 
-  <div class="card">
-    <h3>Current Nomination</h3>
-    {% if state.current_player %}
-      <p><strong>Player:</strong> {{ state.current_player.name }}</p>
-      <p><strong>Tier:</strong> {{ state.current_player.tier|title }}</p>
-      <p><strong>Base Price:</strong> {{ state.current_player.base_price }}</p>
-      <p><strong>Highest Bid:</strong> {{ state.current_player.current_bid }}</p>
-      <p><strong>Highest Bidder:</strong> {{ state.current_player.current_bidder_team_name or '-' }}</p>
-    {% else %}
-      <p>No player is currently nominated.</p>
-    {% endif %}
+      <div class="table-wrap lot-bids-wrap">
+        <table id="adminCurrentBidsTable">
+          <thead>
+            <tr><th>Time</th><th>Team</th><th>Bid</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for b in state.current_lot_bids %}
+            <tr>
+              <td>{{ b.ts_display or '-' }}</td>
+              <td>{{ b.team_name or '-' }}</td>
+              <td>{{ b.amount }}</td>
+              <td>
+                {% if b.bid_id %}
+                <button class="btn btn-outline delete-bid-btn" type="button" data-bid-id="{{ b.bid_id }}">Delete</button>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <div class="card">

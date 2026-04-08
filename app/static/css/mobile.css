@@ -94,6 +94,30 @@ input, select {
   margin: 10px 0;
 }
 
+.lot-top {
+  display: grid;
+  gap: 10px;
+}
+
+.lot-meta p {
+  margin: 6px 0;
+}
+
+.lot-bids-wrap {
+  width: 100%;
+}
+
+@media (min-width: 760px) {
+  .lot-top {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+  }
+
+  .lot-bids-wrap {
+    justify-self: end;
+  }
+}
+
 .inline-form { display: grid; gap: 8px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .table-wrap { overflow-x: auto; }

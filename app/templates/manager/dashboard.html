@@ -17,21 +17,42 @@
   </div>
 
   <div class="card" id="lotCard">
-    <h3>Current Lot</h3>
-    {% if state.current_player %}
-      <p id="lotTitle">{{ state.current_player.name }} ({{ state.current_player.tier }})</p>
-      <p>Base: <span id="lotBase">{{ state.current_player.base_price }}</span></p>
-      <p>Current: <span id="lotCurrent">{{ state.current_player.current_bid }}</span></p>
-      <p>Highest Bidder: <span id="lotBidder">{{ state.current_player.current_bidder_team_name or '-' }}</span></p>
-    {% else %}
-      <p id="lotTitle">No player nominated</p>
-      <p>Base: <span id="lotBase">-</span></p>
-      <p>Current: <span id="lotCurrent">0</span></p>
-      <p>Highest Bidder: <span id="lotBidder">-</span></p>
-    {% endif %}
+    <div class="lot-top">
+      <div class="lot-meta">
+        <h3>Current Lot</h3>
+        {% if state.current_player %}
+          <p id="lotTitle">{{ state.current_player.name }} ({{ state.current_player.tier }})</p>
+          <p>Base: <span id="lotBase">{{ state.current_player.base_price }}</span></p>
+          <p>Current: <span id="lotCurrent">{{ state.current_player.current_bid }}</span></p>
+          <p>Highest Bidder: <span id="lotBidder">{{ state.current_player.current_bidder_team_name or '-' }}</span></p>
+        {% else %}
+          <p id="lotTitle">No player nominated</p>
+          <p>Base: <span id="lotBase">-</span></p>
+          <p>Current: <span id="lotCurrent">0</span></p>
+          <p>Highest Bidder: <span id="lotBidder">-</span></p>
+        {% endif %}
+      </div>
+
+      <div class="table-wrap lot-bids-wrap">
+        <table id="recentBidsTable">
+          <thead>
+            <tr><th>Time</th><th>Team</th><th>Bid</th></tr>
+          </thead>
+          <tbody>
+          {% for b in state.current_lot_bids %}
+            <tr>
+              <td>{{ b.ts_display or '-' }}</td>
+              <td>{{ b.team_name or '-' }}</td>
+              <td>{{ b.amount }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <div class="quick-actions">
-      <button class="btn btn-outline" id="passBtn">Pass</button>
+      <button class="btn btn-outline" id="passBtn" type="button">Pass</button>
       <button class="btn" data-add="50">+50</button>
       <button class="btn" data-add="100">+100</button>
       <button class="btn" data-add="200">+200</button>

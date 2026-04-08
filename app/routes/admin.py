@@ -126,12 +126,13 @@ def nominate_next():
     auction_service = current_app.extensions["auction_service"]
     sold_result = None
     state = auction_service.get_state()
+    previous_player_id = state.get("current_player", {}).get("id") if state.get("current_player") else None
 
     # One-click flow: close current lot first, then nominate next lot.
     if state.get("current_player"):
         sold_result = auction_service.close_current_player()
 
-    player = auction_service.nominate_next_player()
+    player = auction_service.nominate_next_player(previous_player_id=previous_player_id)
     socketio.emit("state_update", auction_service.get_state())
 
     if not player and not sold_result:
@@ -140,12 +141,39 @@ def nominate_next():
     return jsonify({"ok": True, "sold_result": sold_result, "player": player})
 
 
+@admin_bp.post("/previous-player")
+@login_required(role=ROLE_ADMIN)
+def previous_player():
+    auction_service = current_app.extensions["auction_service"]
+    try:
+        player = auction_service.previous_player()
+        socketio.emit("state_update", auction_service.get_state())
+        return jsonify({"ok": True, "player": player})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @admin_bp.post("/close-current")
 @login_required(role=ROLE_ADMIN)
 def close_current():
     auction_service = current_app.extensions["auction_service"]
     try:
         result = auction_service.close_current_player()
+        socketio.emit("state_update", auction_service.get_state())
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@admin_bp.post("/delete-bid")
+@login_required(role=ROLE_ADMIN)
+def delete_bid():
+    auction_service = current_app.extensions["auction_service"]
+    bid_id = request.form.get("bid_id", "").strip()
+    if not bid_id:
+        return jsonify({"ok": False, "error": "Missing bid id"}), 400
+    try:
+        result = auction_service.delete_bid(bid_id)
         socketio.emit("state_update", auction_service.get_state())
         return jsonify({"ok": True, "result": result})
     except Exception as exc:  # noqa: BLE001

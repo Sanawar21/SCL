@@ -31,8 +31,12 @@ class AuctionService:
                 "phase": PHASE_SETUP,
                 "created_at": datetime.utcnow().isoformat(),
                 "current_player_id": None,
+                "nomination_history": [],
             }
             meta_table.insert(meta)
+            meta = meta_table.get(doc_id=1)
+        elif "nomination_history" not in meta:
+            meta_table.update({"nomination_history": []}, doc_ids=[1])
             meta = meta_table.get(doc_id=1)
         return meta
 
@@ -40,6 +44,7 @@ class AuctionService:
         with self.store.write() as db:
             meta = self._get_meta(db)
             player_table = db.table("players")
+            bids_table = db.table("bids")
             if len(player_table) == 0:
                 seed_players = [
                     ("Arjun", "silver"),
@@ -72,6 +77,11 @@ class AuctionService:
                 for p in player_table.all():
                     if "nominated_phase_a" not in p:
                         player_table.update({"nominated_phase_a": False}, Player.id == p["id"])
+
+            # Backfill older bid records with a stable id so admin can delete specific bids.
+            for b in bids_table.all():
+                if "id" not in b:
+                    bids_table.update({"id": secrets.token_hex(8)}, doc_ids=[b.doc_id])
             db.table("meta").update(meta, doc_ids=[1])
 
     def setup_team_budgets(self):
@@ -109,6 +119,13 @@ class AuctionService:
 
     def get_state(self):
         with self.store.read() as db:
+            def format_bid_time(ts: str):
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    return f"{dt.strftime('%H:%M:%S')}.{int(dt.microsecond / 1000):03d}"
+                except Exception:  # noqa: BLE001
+                    return ts
+
             meta = self._get_meta(db)
             teams = db.table("teams").all()
             teams_by_id = {t["id"]: t for t in teams}
@@ -124,6 +141,29 @@ class AuctionService:
                 sold_to_team = teams_by_id.get(sold_to_id) if sold_to_id else None
                 p["sold_to_team_name"] = sold_to_team.get("name") if sold_to_team else "-"
             bids = db.table("bids").all()[-25:]
+            enriched_bids = []
+            current_lot_bids = []
+            current_player_id = meta.get("current_player_id")
+            for bid in bids:
+                bidder_team = teams_by_id.get(bid.get("team_id"))
+                player = players_by_id.get(bid.get("player_id"))
+                enriched_bid = {
+                    **bid,
+                    "bid_id": bid.get("id"),
+                    "team_name": bidder_team.get("name") if bidder_team else "-",
+                    "player_name": player.get("name") if player else "-",
+                    "ts_display": format_bid_time(str(bid.get("ts", ""))),
+                }
+                enriched_bids.append(enriched_bid)
+                if current_player_id and bid.get("player_id") == current_player_id:
+                    current_lot_bids.append(enriched_bid)
+
+            # Keep current lot bids newest-first for all dashboards.
+            current_lot_bids = sorted(
+                current_lot_bids,
+                key=lambda b: str(b.get("ts", "")),
+                reverse=True,
+            )
             current_player = None
             if meta.get("current_player_id"):
                 current_player = db.table("players").get(Query().id == meta["current_player_id"])
@@ -170,7 +210,8 @@ class AuctionService:
                 "current_player": current_player,
                 "teams": enriched_teams,
                 "players": players,
-                "bids": bids,
+                "bids": enriched_bids,
+                "current_lot_bids": current_lot_bids,
                 "phase_b_readiness": {
                     "unsold_players": unsold_players,
                     "incomplete_fill_needed": incomplete_fill_needed,
@@ -188,12 +229,16 @@ class AuctionService:
                 ],
             }
 
-    def nominate_next_player(self):
+    def nominate_next_player(self, previous_player_id: str | None = None):
         with self.store.write() as db:
             meta = self._get_meta(db)
             phase = meta["phase"]
             Player = Query()
             players_table = db.table("players")
+            history = list(meta.get("nomination_history", []))
+
+            if previous_player_id:
+                history.append(previous_player_id)
 
             if phase == PHASE_A_SG:
                 # Phase A must nominate all Silver players first, then Gold players.
@@ -225,8 +270,110 @@ class AuctionService:
                 update_fields["nominated_phase_a"] = True
 
             players_table.update(update_fields, Player.id == player["id"])
-            db.table("meta").update({"current_player_id": player["id"]}, doc_ids=[1])
+            db.table("meta").update(
+                {
+                    "current_player_id": player["id"],
+                    "nomination_history": history,
+                },
+                doc_ids=[1],
+            )
             return players_table.get(Player.id == player["id"])
+
+    def previous_player(self):
+        Team = Query()
+        Player = Query()
+        Bid = Query()
+        with self.store.write() as db:
+            meta = self._get_meta(db)
+            current_player_id = meta.get("current_player_id")
+            history = list(meta.get("nomination_history", []))
+
+            if not current_player_id:
+                raise ValueError("No active player to step back from")
+            if not history:
+                raise ValueError("No previous player available")
+
+            current_player = db.table("players").get(Player.id == current_player_id)
+            if not current_player:
+                raise ValueError("Current player not found")
+            if current_player.get("current_bid", 0) > 0 or current_player.get("current_bidder_team_id"):
+                raise ValueError("Cannot go to the previous player after bidding has started")
+
+            previous_player_id = history.pop()
+            previous_player = db.table("players").get(Player.id == previous_player_id)
+            if not previous_player:
+                raise ValueError("Previous player not found")
+
+            teams_table = db.table("teams")
+            bids_table = db.table("bids")
+
+            # If previous player was sold by an accidental next-lot action, undo that sale and reopen lot.
+            if previous_player.get("status") == "sold" and previous_player.get("sold_to"):
+                sold_team = teams_table.get(Team.id == previous_player.get("sold_to"))
+                if sold_team:
+                    players_list = list(sold_team.get("players", []))
+                    bench_list = list(sold_team.get("bench", []))
+                    if previous_player_id in players_list:
+                        players_list.remove(previous_player_id)
+                    if previous_player_id in bench_list:
+                        bench_list.remove(previous_player_id)
+
+                    refund_price = int(previous_player.get("sold_price", 0) or 0)
+                    refund_credits = int(previous_player.get("credits", 0) or 0)
+                    teams_table.update(
+                        {
+                            "players": players_list,
+                            "bench": bench_list,
+                            "purse_remaining": int(sold_team.get("purse_remaining", 0) or 0) + refund_price,
+                            "spent": max(0, int(sold_team.get("spent", 0) or 0) - refund_price),
+                            "credits_remaining": int(sold_team.get("credits_remaining", 0) or 0) + refund_credits,
+                        },
+                        Team.id == sold_team["id"],
+                    )
+
+                db.table("players").update(
+                    {
+                        "status": "unsold",
+                        "sold_to": None,
+                        "sold_price": 0,
+                        "phase_sold": None,
+                    },
+                    Player.id == previous_player_id,
+                )
+
+            # Restore top bid state for reopened lot, if bids existed earlier.
+            previous_bid_rows = bids_table.search((Bid.player_id == previous_player_id) & (Bid.kind == "bid"))
+            if previous_bid_rows:
+                top = sorted(
+                    previous_bid_rows,
+                    key=lambda b: (int(b.get("amount", 0)), str(b.get("ts", ""))),
+                    reverse=True,
+                )[0]
+                previous_bid_update = {
+                    "current_bid": int(top.get("amount", 0)),
+                    "current_bidder_team_id": top.get("team_id"),
+                }
+            else:
+                previous_bid_update = {"current_bid": 0, "current_bidder_team_id": None}
+
+            current_updates = {"current_bid": 0, "current_bidder_team_id": None}
+            if meta.get("phase") == PHASE_A_SG:
+                current_updates["nominated_phase_a"] = False
+            db.table("players").update(current_updates, Player.id == current_player_id)
+
+            previous_updates = previous_bid_update
+            if meta.get("phase") == PHASE_A_SG:
+                previous_updates["nominated_phase_a"] = True
+            db.table("players").update(previous_updates, Player.id == previous_player_id)
+
+            db.table("meta").update(
+                {
+                    "current_player_id": previous_player_id,
+                    "nomination_history": history,
+                },
+                doc_ids=[1],
+            )
+            return db.table("players").get(Player.id == previous_player_id)
 
     def place_bid(self, team_id: str, amount: int):
         Team = Query()
@@ -274,6 +421,7 @@ class AuctionService:
             )
             db.table("bids").insert(
                 {
+                    "id": secrets.token_hex(8),
                     "ts": datetime.utcnow().isoformat(),
                     "team_id": team_id,
                     "player_id": player_id,
@@ -292,6 +440,7 @@ class AuctionService:
                 raise ValueError("No active player")
             db.table("bids").insert(
                 {
+                    "id": secrets.token_hex(8),
                     "ts": datetime.utcnow().isoformat(),
                     "team_id": team_id,
                     "player_id": player_id,
@@ -357,6 +506,51 @@ class AuctionService:
             )
             db.table("meta").update({"current_player_id": None}, doc_ids=[1])
             return {"sold": True, "team_name": team["name"], "price": player["current_bid"]}
+
+    def delete_bid(self, bid_id: str):
+        Bid = Query()
+        Player = Query()
+        with self.store.write() as db:
+            meta = self._get_meta(db)
+            current_player_id = meta.get("current_player_id")
+
+            bids_table = db.table("bids")
+            players_table = db.table("players")
+
+            bid = bids_table.get(Bid.id == bid_id)
+            if not bid:
+                raise ValueError("Bid not found")
+
+            if not current_player_id or bid.get("player_id") != current_player_id:
+                raise ValueError("Only bids from the current lot can be deleted")
+
+            player = players_table.get(Player.id == current_player_id)
+            if not player or player.get("status") != "unsold":
+                raise ValueError("Cannot delete bids for a closed lot")
+
+            bids_table.remove(Bid.id == bid_id)
+
+            remaining = bids_table.search((Bid.player_id == current_player_id) & (Bid.kind == "bid"))
+            if not remaining:
+                players_table.update(
+                    {"current_bid": 0, "current_bidder_team_id": None},
+                    Player.id == current_player_id,
+                )
+                return {"deleted": True, "current_bid": 0}
+
+            top = sorted(
+                remaining,
+                key=lambda b: (int(b.get("amount", 0)), str(b.get("ts", ""))),
+                reverse=True,
+            )[0]
+            players_table.update(
+                {
+                    "current_bid": int(top.get("amount", 0)),
+                    "current_bidder_team_id": top.get("team_id"),
+                },
+                Player.id == current_player_id,
+            )
+            return {"deleted": True, "current_bid": int(top.get("amount", 0))}
 
     def complete_phase_b_with_penalties(self):
         Team = Query()

@@ -84,6 +84,20 @@ function renderTradeTables(managerState) {
   wireTradeActions();
 }
 
+function renderRecentBids(managerState) {
+  const bidsBody = document.querySelector("#recentBidsTable tbody");
+  if (!bidsBody) {
+    return;
+  }
+
+  bidsBody.innerHTML = (managerState.current_lot_bids || [])
+    .slice()
+    .map(
+      (b) => `<tr><td>${b.ts_display || "-"}</td><td>${b.team_name || "-"}</td><td>${b.amount}</td></tr>`
+    )
+    .join("");
+}
+
 function refreshView(state) {
   latestState = state;
   document.getElementById("phaseBadge").textContent = state.phase;
@@ -120,6 +134,8 @@ function refreshView(state) {
           )
           .join("");
       }
+
+      renderRecentBids(managerState);
 
       renderTradeTables(managerState);
     });
@@ -162,7 +178,8 @@ if (flat200Btn) {
 }
 
 if (passBtn) {
-  passBtn.addEventListener("click", async () => {
+  passBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
     const res = await fetch("/manager/pass", { method: "POST", body: new FormData() });
     const data = await res.json();
     bidMsg.textContent = data.ok ? "Pass recorded" : `Pass failed: ${data.error}`;

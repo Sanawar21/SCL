@@ -74,13 +74,13 @@
     "3": {
       "id": "a22739127524352c",
       "name": "Ahmad",
-      "tier": "platinum",
-      "base_price": 1500,
+      "tier": "gold",
+      "base_price": 800,
       "status": "unsold",
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false

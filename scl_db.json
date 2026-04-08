@@ -52,7 +52,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 4,
+      "credits": 3,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -66,7 +66,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 4,
+      "credits": 3,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -80,7 +80,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 4,
+      "credits": 3,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -94,7 +94,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -108,7 +108,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -122,7 +122,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -136,7 +136,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false
@@ -150,7 +150,7 @@
       "sold_to": null,
       "sold_price": 0,
       "phase_sold": null,
-      "credits": 3,
+      "credits": 2,
       "current_bid": 0,
       "current_bidder_team_id": null,
       "nominated_phase_a": false

@@ -130,3 +130,16 @@ th, td { border-bottom: 1px solid #e5eaef; padding: 8px; font-size: 14px; text-a
 .flash-error { background: #ffe3e6; color: #8e1d2c; }
 
 .mono { font-family: Consolas, monospace; word-break: break-all; }
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}

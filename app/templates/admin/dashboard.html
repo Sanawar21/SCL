@@ -70,6 +70,29 @@
   </div>
 
   <div class="card">
+    <h3>Session Save and Load</h3>
+    <div class="grid-2">
+      <div class="stack-sm">
+        <label for="sessionNameInput">Save current session as</label>
+        <input id="sessionNameInput" placeholder="e.g. phase-a-midpoint">
+        <button class="btn" id="saveSessionBtn" type="button">Save Session</button>
+      </div>
+      <div class="stack-sm">
+        <label for="sessionSelect">Load saved session</label>
+        <select id="sessionSelect">
+          <option value="">No saved sessions</option>
+        </select>
+        <button class="btn btn-outline" id="loadSessionBtn" type="button">Load Session</button>
+      </div>
+    </div>
+    <label class="checkbox-row">
+      <input id="overwriteSessionCheckbox" type="checkbox">
+      Overwrite if name already exists
+    </label>
+    <p id="sessionStatus" class="mono"></p>
+  </div>
+
+  <div class="card">
     <h3>Create Manager Credentials</h3>
     {% if state.phase != 'setup' %}
       <p><strong>Setup controls are disabled outside setup phase.</strong></p>

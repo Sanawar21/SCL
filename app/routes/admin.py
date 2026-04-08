@@ -1,3 +1,8 @@
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from tinydb import Query
 
@@ -14,11 +19,36 @@ from app.rules import (
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
+_SESSION_FILE_RE = re.compile(r"^[A-Za-z0-9_-]+\.json$")
+
 
 def _ensure_setup_phase():
     state = current_app.extensions["auction_service"].get_state()
     if state.get("phase") != PHASE_SETUP:
         raise ValueError("This action is only allowed during setup phase")
+
+
+def _session_dir() -> Path:
+    configured = Path(current_app.config.get("SESSION_DIR", "sessions"))
+    if configured.is_absolute():
+        base = configured
+    else:
+        base = Path(current_app.root_path).parent / configured
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _slugify_session_name(name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-_").lower()
+    if not slug:
+        slug = datetime.utcnow().strftime("session-%Y%m%d-%H%M%S")
+    return slug
+
+
+def _resolve_session_file(filename: str) -> Path:
+    if not _SESSION_FILE_RE.fullmatch(filename):
+        raise ValueError("Invalid session filename")
+    return _session_dir() / filename
 
 
 @admin_bp.get("/login")
@@ -480,3 +510,78 @@ def complete_draft():
     auction_service.complete_phase_b_with_penalties()
     socketio.emit("state_update", auction_service.get_state())
     return jsonify({"ok": True})
+
+
+@admin_bp.get("/session/list")
+@login_required(role=ROLE_ADMIN)
+def list_sessions():
+    session_files = sorted(
+        _session_dir().glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    sessions = []
+    for session_file in session_files:
+        saved_at = datetime.utcfromtimestamp(session_file.stat().st_mtime).isoformat()
+        sessions.append(
+            {
+                "file": session_file.name,
+                "label": session_file.stem,
+                "saved_at": saved_at,
+            }
+        )
+    return jsonify({"ok": True, "sessions": sessions})
+
+
+@admin_bp.post("/session/save")
+@login_required(role=ROLE_ADMIN)
+def save_session():
+    requested_name = request.form.get("session_name", "").strip()
+    overwrite = request.form.get("overwrite", "").strip().lower() in {"1", "true", "yes", "on"}
+    slug = _slugify_session_name(requested_name)
+    file_path = _resolve_session_file(f"{slug}.json")
+    existed = file_path.exists()
+    if existed and not overwrite:
+        return jsonify({"ok": False, "error": "A session with this name already exists"}), 400
+
+    store = current_app.extensions["store"]
+    payload = {
+        "session_name": requested_name or slug,
+        "saved_at": datetime.utcnow().isoformat(),
+        "tables": store.export_tables(),
+    }
+    file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return jsonify({"ok": True, "file": file_path.name, "overwritten": existed})
+
+
+@admin_bp.post("/session/load")
+@login_required(role=ROLE_ADMIN)
+def load_session():
+    filename = request.form.get("session_file", "").strip()
+    if not filename:
+        return jsonify({"ok": False, "error": "Session file is required"}), 400
+
+    try:
+        file_path = _resolve_session_file(filename)
+        if not file_path.exists():
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+        tables = payload.get("tables")
+        if not isinstance(tables, dict):
+            return jsonify({"ok": False, "error": "Invalid session file format"}), 400
+
+        store = current_app.extensions["store"]
+        auth_service = current_app.extensions["auth_service"]
+        auction_service = current_app.extensions["auction_service"]
+
+        store.import_tables(tables)
+        auth_service.seed_admin_if_missing()
+        auction_service.bootstrap_defaults()
+
+        socketio.emit("state_update", auction_service.get_state())
+        return jsonify({"ok": True, "loaded": filename})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 500

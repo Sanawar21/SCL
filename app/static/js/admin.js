@@ -7,6 +7,12 @@ const nominateBtn = document.getElementById("nominateBtn");
 const previousBtn = document.getElementById("previousBtn");
 const closeBtn = document.getElementById("closeBtn");
 const completeBtn = document.getElementById("completeBtn");
+const saveSessionBtn = document.getElementById("saveSessionBtn");
+const loadSessionBtn = document.getElementById("loadSessionBtn");
+const sessionNameInput = document.getElementById("sessionNameInput");
+const overwriteSessionCheckbox = document.getElementById("overwriteSessionCheckbox");
+const sessionSelect = document.getElementById("sessionSelect");
+const sessionStatus = document.getElementById("sessionStatus");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
 
@@ -32,6 +38,38 @@ function wireDeleteBidButtons() {
 
 function postForm(url, formData) {
   return fetch(url, { method: "POST", body: formData }).then((r) => r.json());
+}
+
+async function refreshSessions() {
+  if (!sessionSelect) {
+    return;
+  }
+
+  const response = await fetch("/admin/session/list");
+  const result = await response.json();
+  if (!result.ok) {
+    if (sessionStatus) {
+      sessionStatus.textContent = result.error || "Unable to load sessions";
+    }
+    return;
+  }
+
+  sessionSelect.innerHTML = "";
+  if (!result.sessions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No saved sessions";
+    sessionSelect.appendChild(option);
+    return;
+  }
+
+  result.sessions.forEach((session) => {
+    const option = document.createElement("option");
+    option.value = session.file;
+    const savedAt = session.saved_at ? new Date(session.saved_at).toLocaleString() : "";
+    option.textContent = savedAt ? `${session.label} (${savedAt})` : session.label;
+    sessionSelect.appendChild(option);
+  });
 }
 
 function ensureSetupPhase() {
@@ -122,7 +160,51 @@ if (completeBtn) {
   });
 }
 
+if (saveSessionBtn) {
+  saveSessionBtn.addEventListener("click", async () => {
+    const fd = new FormData();
+    fd.append("session_name", (sessionNameInput?.value || "").trim());
+    fd.append("overwrite", overwriteSessionCheckbox?.checked ? "true" : "false");
+    const res = await postForm("/admin/session/save", fd);
+    if (!res.ok) {
+      sessionStatus.textContent = `Error: ${res.error || "Unable to save session"}`;
+      return;
+    }
+    sessionStatus.textContent = res.overwritten
+      ? `Replaced existing session: ${res.file}`
+      : `Saved session: ${res.file}`;
+    if (sessionNameInput) {
+      sessionNameInput.value = "";
+    }
+    await refreshSessions();
+  });
+}
+
+if (loadSessionBtn) {
+  loadSessionBtn.addEventListener("click", async () => {
+    const selected = sessionSelect?.value || "";
+    if (!selected) {
+      sessionStatus.textContent = "Select a saved session to load.";
+      return;
+    }
+    if (!confirm(`Load session ${selected}? Current auction state will be replaced.`)) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("session_file", selected);
+    const res = await postForm("/admin/session/load", fd);
+    if (!res.ok) {
+      sessionStatus.textContent = `Error: ${res.error || "Unable to load session"}`;
+      return;
+    }
+    sessionStatus.textContent = `Loaded session: ${res.loaded}`;
+    await refreshSessions();
+  });
+}
+
 wireDeleteBidButtons();
+refreshSessions();
 
 document.querySelectorAll(".edit-player-btn").forEach((btn) => {
   btn.addEventListener("click", async () => {

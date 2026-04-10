@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h3>Public Budget Board</h3>
+    <div class="table-wrap">
+      <table id="budgetTable">
+        <thead>
+          <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+        </thead>
+        <tbody>
+          {% for t in state.public_budget_board %}
+          <tr>
+            <td>{{ t.team_name }}</td>
+            <td>{{ t.purse_remaining }}</td>
+            <td>{{ t.credits_remaining }}</td>
+            <td>{{ t.active_count }}</td>
+            <td>{{ t.bench_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Teams List</h3>
+    <div class="table-wrap">
+      <table id="teamsTable">
+        <thead>
+          <tr><th>Team</th><th>Manager</th><th>Players</th><th>Bench</th></tr>
+        </thead>
+        <tbody>
+          {% for t in state.teams %}
+          <tr>
+            <td>{{ t.name }}</td>
+            <td>{{ t.manager_name }}</td>
+            <td>{{ t.player_labels|join(', ') if t.player_labels else '-' }}</td>
+            <td>{{ t.bench_labels|join(', ') if t.bench_labels else '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Players List</h3>
+    <div class="table-wrap">
+      <table id="playersTable">
+        <thead>
+          <tr><th>Name</th><th>Tier</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+        </thead>
+        <tbody>
+          {% for p in state.players %}
+          <tr>
+            <td>{{ p.name }}</td>
+            <td>{{ p.tier }}</td>
+            <td>{{ p.status }}</td>
+            <td>{{ p.current_bid }}</td>
+            <td>{{ p.sold_to_team_name or '-' }}</td>
+            <td>{{ p.sold_price }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Bid History</h3>
+    <div class="table-wrap">
+      <table id="publishedBidsTable">
+        <thead>
+          <tr><th>Time</th><th>Player</th><th>Team</th><th>Type</th><th>Bid</th></tr>
+        </thead>
+        <tbody>
+          {% for b in state.bids %}
+          <tr>
+            <td>{{ b.ts_display or '-' }}</td>
+            <td>{{ b.player_name or '-' }}</td>
+            <td>{{ b.team_name or '-' }}</td>
+            <td>{{ b.kind|title }}</td>
+            <td>{{ b.amount }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

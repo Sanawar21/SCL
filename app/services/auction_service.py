@@ -23,6 +23,135 @@ class AuctionService:
     def __init__(self, store):
         self.store = store
 
+    def _build_state_from_data(self, meta, teams, users, players, bids, bid_limit=25):
+        def format_bid_time(ts: str):
+            try:
+                dt = datetime.fromisoformat(ts)
+                return f"{dt.strftime('%H:%M:%S')}.{int(dt.microsecond / 1000):03d}"
+            except Exception:  # noqa: BLE001
+                return ts
+
+        teams_by_id = {t["id"]: t for t in teams}
+        players_by_id = {p["id"]: p for p in players}
+        users_by_team_id = {}
+        for user in users:
+            team_id = user.get("team_id")
+            if team_id:
+                users_by_team_id[team_id] = user
+
+        all_bids = sorted(list(bids), key=lambda b: str(b.get("ts", "")), reverse=True)
+        enriched_bids = []
+        current_lot_bids = []
+        current_player_id = meta.get("current_player_id")
+
+        for bid in all_bids:
+            bidder_team = teams_by_id.get(bid.get("team_id"))
+            player = players_by_id.get(bid.get("player_id"))
+            enriched_bid = {
+                **bid,
+                "bid_id": bid.get("id"),
+                "team_name": bidder_team.get("name") if bidder_team else "-",
+                "player_name": player.get("name") if player else "-",
+                "ts_display": format_bid_time(str(bid.get("ts", ""))),
+            }
+            if bid_limit is None or len(enriched_bids) < bid_limit:
+                enriched_bids.append(enriched_bid)
+            if current_player_id and bid.get("player_id") == current_player_id:
+                current_lot_bids.append(enriched_bid)
+
+        current_player = None
+        if current_player_id:
+            current_player = players_by_id.get(current_player_id)
+            if current_player:
+                bidder_id = current_player.get("current_bidder_team_id")
+                bidder_team = teams_by_id.get(bidder_id) if bidder_id else None
+                current_player = {**current_player}
+                current_player["current_bidder_team_name"] = bidder_team.get("name") if bidder_team else "-"
+
+        incomplete_fill_needed = sum(
+            max(0, REQUIRED_ACTIVE_PLAYERS - len(t.get("players", [])))
+            for t in teams
+            if len(t.get("players", [])) < REQUIRED_ACTIVE_PLAYERS
+        )
+        unsold_players = sum(1 for p in players if p.get("status") == "unsold")
+        can_enter_phase_b = unsold_players > incomplete_fill_needed
+
+        enriched_teams = []
+        prefix_map = {"gold": "(G)", "silver": "(S)", "platinum": "(P)"}
+        for team in teams:
+            manager_user = users_by_team_id.get(team["id"])
+            player_labels = [
+                f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
+                for pid in team.get("players", [])
+                if pid in players_by_id
+            ]
+            bench_labels = [
+                f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
+                for pid in team.get("bench", [])
+                if pid in players_by_id
+            ]
+            enriched_teams.append(
+                {
+                    **team,
+                    "manager_name": (
+                        f"{prefix_map.get(team.get('manager_tier'), '')} {manager_user.get('display_name', manager_user.get('username', '-'))}".strip()
+                        if manager_user
+                        else "-"
+                    ),
+                    "player_labels": player_labels,
+                    "bench_labels": bench_labels,
+                }
+            )
+
+        return {
+            "phase": meta.get("phase", PHASE_SETUP),
+            "current_player": current_player,
+            "teams": enriched_teams,
+            "managers": [
+                {
+                    "username": m.get("username"),
+                    "display_name": m.get("display_name", m.get("username", "")),
+                    "team_id": m.get("team_id"),
+                    "team_name": teams_by_id.get(m.get("team_id"), {}).get("name", "-"),
+                }
+                for m in users
+                if m.get("role") == "manager"
+            ],
+            "players": [
+                {
+                    **p,
+                    "sold_to_team_name": teams_by_id.get(p.get("sold_to"), {}).get("name", "-") if p.get("sold_to") else "-",
+                }
+                for p in players
+            ],
+            "bids": enriched_bids,
+            "current_lot_bids": current_lot_bids,
+            "phase_b_readiness": {
+                "unsold_players": unsold_players,
+                "incomplete_fill_needed": incomplete_fill_needed,
+                "can_enter_phase_b": can_enter_phase_b,
+            },
+            "public_budget_board": [
+                {
+                    "team_name": t["name"],
+                    "purse_remaining": t.get("purse_remaining"),
+                    "credits_remaining": t.get("credits_remaining"),
+                    "active_count": len(t.get("players", [])),
+                    "bench_count": len(t.get("bench", [])),
+                }
+                for t in teams
+            ],
+        }
+
+    def build_state_from_tables(self, tables, bid_limit=None):
+        meta_rows = tables.get("meta", []) if isinstance(tables, dict) else []
+        meta = dict(meta_rows[0]) if meta_rows else {"phase": PHASE_SETUP, "current_player_id": None}
+        teams = list(tables.get("teams", [])) if isinstance(tables, dict) else []
+        users = list(tables.get("users", [])) if isinstance(tables, dict) else []
+        players = list(tables.get("players", [])) if isinstance(tables, dict) else []
+        bids = list(tables.get("bids", [])) if isinstance(tables, dict) else []
+        return self._build_state_from_data(meta, teams, users, players, bids, bid_limit=bid_limit)
+
     def _get_meta(self, db):
         meta_table = db.table("meta")
         meta = meta_table.get(doc_id=1)
@@ -119,125 +248,12 @@ class AuctionService:
 
     def get_state(self):
         with self.store.read() as db:
-            def format_bid_time(ts: str):
-                try:
-                    dt = datetime.fromisoformat(ts)
-                    return f"{dt.strftime('%H:%M:%S')}.{int(dt.microsecond / 1000):03d}"
-                except Exception:  # noqa: BLE001
-                    return ts
-
             meta = self._get_meta(db)
             teams = db.table("teams").all()
-            teams_by_id = {t["id"]: t for t in teams}
-            managers = [u for u in db.table("users").all() if u.get("role") == "manager"]
-            users_by_team_id = {}
-            for user in db.table("users").all():
-                team_id = user.get("team_id")
-                if team_id:
-                    users_by_team_id[team_id] = user
-            players_by_id = {p["id"]: p for p in db.table("players").all()}
+            users = db.table("users").all()
             players = db.table("players").all()
-            for p in players:
-                sold_to_id = p.get("sold_to")
-                sold_to_team = teams_by_id.get(sold_to_id) if sold_to_id else None
-                p["sold_to_team_name"] = sold_to_team.get("name") if sold_to_team else "-"
-            bids = db.table("bids").all()[-25:]
-            enriched_bids = []
-            current_lot_bids = []
-            current_player_id = meta.get("current_player_id")
-            for bid in bids:
-                bidder_team = teams_by_id.get(bid.get("team_id"))
-                player = players_by_id.get(bid.get("player_id"))
-                enriched_bid = {
-                    **bid,
-                    "bid_id": bid.get("id"),
-                    "team_name": bidder_team.get("name") if bidder_team else "-",
-                    "player_name": player.get("name") if player else "-",
-                    "ts_display": format_bid_time(str(bid.get("ts", ""))),
-                }
-                enriched_bids.append(enriched_bid)
-                if current_player_id and bid.get("player_id") == current_player_id:
-                    current_lot_bids.append(enriched_bid)
-
-            # Keep current lot bids newest-first for all dashboards.
-            current_lot_bids = sorted(
-                current_lot_bids,
-                key=lambda b: str(b.get("ts", "")),
-                reverse=True,
-            )
-            current_player = None
-            if meta.get("current_player_id"):
-                current_player = db.table("players").get(Query().id == meta["current_player_id"])
-                if current_player:
-                    bidder_id = current_player.get("current_bidder_team_id")
-                    bidder_team = teams_by_id.get(bidder_id) if bidder_id else None
-                    current_player["current_bidder_team_name"] = bidder_team.get("name") if bidder_team else "-"
-            incomplete_fill_needed = sum(
-                max(0, REQUIRED_ACTIVE_PLAYERS - len(t.get("players", [])))
-                for t in teams
-                if len(t.get("players", [])) < REQUIRED_ACTIVE_PLAYERS
-            )
-            unsold_players = sum(1 for p in players if p.get("status") == "unsold")
-            can_enter_phase_b = unsold_players > incomplete_fill_needed
-
-            enriched_teams = []
-            prefix_map = {"gold": "(G)", "silver": "(S)", "platinum": "(P)"}
-            for team in teams:
-                manager_user = users_by_team_id.get(team["id"])
-                player_labels = [
-                    f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
-                    for pid in team.get("players", [])
-                    if pid in players_by_id
-                ]
-                bench_labels = [
-                    f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
-                    for pid in team.get("bench", [])
-                    if pid in players_by_id
-                ]
-                enriched_teams.append(
-                    {
-                        **team,
-                        "manager_name": (
-                            f"{prefix_map.get(team.get('manager_tier'), '')} {manager_user.get('display_name', manager_user.get('username', '-'))}".strip()
-                            if manager_user
-                            else "-"
-                        ),
-                        "player_labels": player_labels,
-                        "bench_labels": bench_labels,
-                    }
-                )
-            return {
-                "phase": meta["phase"],
-                "current_player": current_player,
-                "teams": enriched_teams,
-                "managers": [
-                    {
-                        "username": m.get("username"),
-                        "display_name": m.get("display_name", m.get("username", "")),
-                        "team_id": m.get("team_id"),
-                        "team_name": teams_by_id.get(m.get("team_id"), {}).get("name", "-"),
-                    }
-                    for m in managers
-                ],
-                "players": players,
-                "bids": enriched_bids,
-                "current_lot_bids": current_lot_bids,
-                "phase_b_readiness": {
-                    "unsold_players": unsold_players,
-                    "incomplete_fill_needed": incomplete_fill_needed,
-                    "can_enter_phase_b": can_enter_phase_b,
-                },
-                "public_budget_board": [
-                    {
-                        "team_name": t["name"],
-                        "purse_remaining": t.get("purse_remaining"),
-                        "credits_remaining": t.get("credits_remaining"),
-                        "active_count": len(t.get("players", [])),
-                        "bench_count": len(t.get("bench", [])),
-                    }
-                    for t in teams
-                ],
-            }
+            bids = db.table("bids").all()
+            return self._build_state_from_data(meta, teams, users, players, bids, bid_limit=25)
 
     def nominate_next_player(self, previous_player_id: str | None = None):
         with self.store.write() as db:

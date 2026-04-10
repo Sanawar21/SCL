@@ -20,6 +20,7 @@ Mobile-first Flask + TinyDB auction dashboard for Small Cricket League.
   - Incomplete teams cannot bid in Phase B.
   - Draft completion penalty auto-assigns players to reach 3 bought players and zeroes wallet.
 - Live updates with Flask-SocketIO and fallback polling on viewer page.
+- Published completed auction snapshots are available at `/<name>` after the admin publishes them.
 
 ## Run
 
@@ -52,3 +53,4 @@ Default admin credentials:
 6. Close lot from admin when ready.
 7. Move to Phase B and continue unsold pool purchases at 200.
 8. Click Complete Draft + Penalties to auto-assign incomplete teams.
+9. Publish the completed auction snapshot with a name such as `season-1` to expose it at `/<name>`.

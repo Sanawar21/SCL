@@ -13,6 +13,10 @@ const sessionNameInput = document.getElementById("sessionNameInput");
 const overwriteSessionCheckbox = document.getElementById("overwriteSessionCheckbox");
 const sessionSelect = document.getElementById("sessionSelect");
 const sessionStatus = document.getElementById("sessionStatus");
+const publishSessionBtn = document.getElementById("publishSessionBtn");
+const publishNameInput = document.getElementById("publishNameInput");
+const publishSuffixInput = document.getElementById("publishSuffixInput");
+const publishStatus = document.getElementById("publishStatus");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
 
@@ -177,6 +181,36 @@ if (saveSessionBtn) {
       sessionNameInput.value = "";
     }
     await refreshSessions();
+  });
+}
+
+if (publishSessionBtn) {
+  publishSessionBtn.addEventListener("click", async () => {
+    const fd = new FormData();
+    fd.append("session_name", (publishNameInput?.value || "").trim());
+    fd.append("session_link_suffix", (publishSuffixInput?.value || "").trim());
+    fd.append("overwrite", "false");
+    if (!confirm("Publish this completed auction snapshot?")) {
+      return;
+    }
+
+    const res = await postForm("/admin/publish-session", fd);
+    if (!res.ok) {
+      if (publishStatus) {
+        publishStatus.textContent = `Error: ${res.error || "Unable to publish session"}`;
+      }
+      return;
+    }
+
+    if (publishStatus) {
+      publishStatus.textContent = `Published session: ${res.file} at ${res.public_path || `/${res.file.replace(/\.json$/, "")}`}`;
+    }
+    if (publishNameInput) {
+      publishNameInput.value = "";
+    }
+    if (publishSuffixInput) {
+      publishSuffixInput.value = "";
+    }
   });
 }
 

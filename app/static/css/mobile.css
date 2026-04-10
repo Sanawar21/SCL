@@ -22,8 +22,13 @@ body {
 .topbar {
   position: sticky;
   top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
   z-index: 10;
   padding: 12px;
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
   background: linear-gradient(135deg, #0f6a5f, #1e8879);
   color: white;
 }
@@ -46,6 +51,7 @@ body {
   padding: 14px;
   box-shadow: 0 6px 16px rgba(0,0,0,0.08);
 }
+.published-auctions-card { margin-top: 16px; }
 .hero h1 { margin: 0 0 10px; }
 .hero-actions { display: grid; gap: 8px; }
 

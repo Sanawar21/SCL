@@ -1,5 +1,4 @@
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -8,18 +7,18 @@ from tinydb import Query
 
 from app import socketio
 from app.authz import login_required
+from app.session_files import RESERVED_PUBLIC_SLUGS, resolve_named_directory, resolve_session_file, slugify_session_name
 from app.rules import (
     PHASE_A_BREAK,
     PHASE_A_P,
     PHASE_A_SG,
     PHASE_B,
+    PHASE_COMPLETE,
     PHASE_SETUP,
     ROLE_ADMIN,
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
-
-_SESSION_FILE_RE = re.compile(r"^[A-Za-z0-9_-]+\.json$")
 
 
 def _ensure_setup_phase():
@@ -29,26 +28,23 @@ def _ensure_setup_phase():
 
 
 def _session_dir() -> Path:
-    configured = Path(current_app.config.get("SESSION_DIR", "sessions"))
-    if configured.is_absolute():
-        base = configured
-    else:
-        base = Path(current_app.root_path).parent / configured
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+    return resolve_named_directory(current_app, "SESSION_DIR", "sessions")
+
+
+def _published_session_dir() -> Path:
+    return resolve_named_directory(current_app, "PUBLISHED_SESSION_DIR", "published_sessions")
 
 
 def _slugify_session_name(name: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-_").lower()
-    if not slug:
-        slug = datetime.utcnow().strftime("session-%Y%m%d-%H%M%S")
-    return slug
+    return slugify_session_name(name)
 
 
 def _resolve_session_file(filename: str) -> Path:
-    if not _SESSION_FILE_RE.fullmatch(filename):
-        raise ValueError("Invalid session filename")
-    return _session_dir() / filename
+    return resolve_session_file(_session_dir(), filename)
+
+
+def _resolve_published_file(filename: str) -> Path:
+    return resolve_session_file(_published_session_dir(), filename)
 
 
 @admin_bp.get("/login")
@@ -552,6 +548,37 @@ def save_session():
     }
     file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return jsonify({"ok": True, "file": file_path.name, "overwritten": existed})
+
+
+@admin_bp.post("/publish-session")
+@login_required(role=ROLE_ADMIN)
+def publish_session():
+    requested_name = request.form.get("session_name", "").strip()
+    requested_suffix = request.form.get("session_link_suffix", "").strip()
+    overwrite = request.form.get("overwrite", "").strip().lower() in {"1", "true", "yes", "on"}
+    slug = _slugify_session_name(requested_suffix or requested_name)
+    if slug in RESERVED_PUBLIC_SLUGS:
+        return jsonify({"ok": False, "error": "That name is reserved"}), 400
+    file_path = _resolve_published_file(f"{slug}.json")
+    existed = file_path.exists()
+    if existed and not overwrite:
+        return jsonify({"ok": False, "error": "A published session with this name already exists"}), 400
+
+    auction_service = current_app.extensions["auction_service"]
+    state = auction_service.get_state()
+    if state.get("phase") != PHASE_COMPLETE:
+        return jsonify({"ok": False, "error": "Publishing is only allowed after the auction is complete"}), 400
+
+    store = current_app.extensions["store"]
+    payload = {
+        "session_name": requested_name or slug,
+        "session_link_suffix": slug,
+        "saved_at": datetime.utcnow().isoformat(),
+        "published": True,
+        "tables": store.export_tables(),
+    }
+    file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return jsonify({"ok": True, "file": file_path.name, "overwritten": existed, "public_path": f"/{slug}"})
 
 
 @admin_bp.post("/session/load")

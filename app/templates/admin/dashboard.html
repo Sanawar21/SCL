@@ -93,6 +93,22 @@
   </div>
 
   <div class="card">
+    <h3>Publish Completed Auction</h3>
+    {% if state.phase != 'complete' %}
+      <p><strong>Publish is enabled after the auction is complete.</strong></p>
+    {% endif %}
+    <div class="stack-sm">
+      <label for="publishNameInput">Public name</label>
+      <input id="publishNameInput" placeholder="e.g. season-1">
+      <label for="publishSuffixInput">Public link suffix</label>
+      <input id="publishSuffixInput" placeholder="e.g. season-1">
+      <button class="btn btn-secondary" id="publishSessionBtn" type="button" {% if state.phase != 'complete' %}disabled{% endif %}>Publish Session</button>
+    </div>
+    <p>Published pages are available at /&lt;name&gt;.</p>
+    <p id="publishStatus" class="mono"></p>
+  </div>
+
+  <div class="card">
     <h3>Create Manager Credentials</h3>
     {% if state.phase != 'setup' %}
       <p><strong>Setup controls are disabled outside setup phase.</strong></p>

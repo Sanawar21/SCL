@@ -9,4 +9,22 @@
     <a class="btn btn-outline" href="{{ url_for('admin.admin_login_page') }}">Admin Login</a>
   </div>
 </section>
+
+<section id="published-auctions" class="card published-auctions-card">
+  <div class="row-between">
+    <h2>Published Auctions</h2>
+    <span class="badge">Public</span>
+  </div>
+  {% if published_sessions %}
+  <div class="stack-sm">
+    {% for session in published_sessions %}
+    <a class="btn btn-outline" href="{{ session.url }}">
+      {{ session.name }}
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>No published auctions yet.</p>
+  {% endif %}
+</section>
 {% endblock %}

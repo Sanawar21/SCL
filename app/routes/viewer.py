@@ -1,11 +1,11 @@
 import json
 from pathlib import Path
 
-from flask import Blueprint, current_app, abort, jsonify, render_template
+from flask import Blueprint, current_app, abort, jsonify, render_template, url_for
 
 from app.session_files import RESERVED_PUBLIC_SLUGS, resolve_named_directory, resolve_session_file
 
-viewer_bp = Blueprint("viewer", __name__)
+viewer_bp = Blueprint("viewer", __name__, url_prefix="/auction")
 
 
 def _published_session_dir() -> Path:
@@ -27,7 +27,7 @@ def _published_sessions():
                 "slug": slug,
                 "name": payload.get("session_name") or slug,
                 "published_at": payload.get("saved_at"),
-                "url": f"/{slug}",
+                "url": url_for("viewer.published_view", slug=slug),
             }
         )
     return sessions

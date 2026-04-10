@@ -18,7 +18,7 @@ from app.rules import (
     ROLE_ADMIN,
 )
 
-admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+admin_bp = Blueprint("admin", __name__, url_prefix="/auction/admin")
 
 
 def _ensure_setup_phase():
@@ -578,7 +578,14 @@ def publish_session():
         "tables": store.export_tables(),
     }
     file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return jsonify({"ok": True, "file": file_path.name, "overwritten": existed, "public_path": f"/{slug}"})
+    return jsonify(
+        {
+            "ok": True,
+            "file": file_path.name,
+            "overwritten": existed,
+            "public_path": url_for("viewer.published_view", slug=slug),
+        }
+    )
 
 
 @admin_bp.post("/session/load")

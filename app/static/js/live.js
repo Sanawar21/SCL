@@ -63,6 +63,6 @@ socket.on("state_update", (state) => {
 });
 
 setInterval(async () => {
-  const res = await fetch("/api/state");
+  const res = await fetch("/auction/api/state");
   renderState(await res.json());
 }, 3000);

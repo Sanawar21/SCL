@@ -4,7 +4,7 @@ from app import socketio
 from app.authz import login_required
 from app.rules import ROLE_MANAGER
 
-manager_bp = Blueprint("manager", __name__, url_prefix="/manager")
+manager_bp = Blueprint("manager", __name__, url_prefix="/auction/manager")
 
 
 @manager_bp.get("/login")

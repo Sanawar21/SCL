@@ -34,7 +34,7 @@ function wireTradeActions() {
       const fd = new FormData();
       fd.append("trade_id", tradeId);
       fd.append("action", action);
-      const res = await fetch("/manager/trade/respond", { method: "POST", body: fd });
+      const res = await fetch("/auction/manager/trade/respond", { method: "POST", body: fd });
       const data = await res.json();
       tradeMsg.textContent = data.ok ? `Trade ${action}ed` : `Trade ${action} failed: ${data.error}`;
     });
@@ -110,7 +110,7 @@ function refreshView(state) {
   document.getElementById("lotCurrent").textContent = current ? current.current_bid : 0;
   document.getElementById("lotBidder").textContent = current ? (current.current_bidder_team_name || "-") : "-";
 
-  fetch("/manager/state")
+  fetch("/auction/manager/state")
     .then((r) => r.json())
     .then((managerState) => {
       const team = managerState.my_team;
@@ -144,7 +144,7 @@ function refreshView(state) {
 async function placeBid(value) {
   const fd = new FormData();
   fd.append("amount", String(value));
-  const res = await fetch("/manager/bid", { method: "POST", body: fd });
+  const res = await fetch("/auction/manager/bid", { method: "POST", body: fd });
   const data = await res.json();
   bidMsg.textContent = data.ok ? "Bid accepted" : `Bid failed: ${data.error}`;
 }
@@ -180,7 +180,7 @@ if (flat200Btn) {
 if (passBtn) {
   passBtn.addEventListener("click", async (e) => {
     e.preventDefault();
-    const res = await fetch("/manager/pass", { method: "POST", body: new FormData() });
+    const res = await fetch("/auction/manager/pass", { method: "POST", body: new FormData() });
     const data = await res.json();
     bidMsg.textContent = data.ok ? "Pass recorded" : `Pass failed: ${data.error}`;
   });
@@ -189,7 +189,7 @@ if (passBtn) {
 if (tradeForm) {
   tradeForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await fetch("/manager/trade", { method: "POST", body: new FormData(tradeForm) });
+    const res = await fetch("/auction/manager/trade", { method: "POST", body: new FormData(tradeForm) });
     const data = await res.json();
     tradeMsg.textContent = data.ok ? "Trade processed" : `Trade failed: ${data.error}`;
   });

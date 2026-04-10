@@ -32,7 +32,7 @@ function wireDeleteBidButtons() {
       }
       const fd = new FormData();
       fd.append("bid_id", bidId);
-      const res = await postForm("/admin/delete-bid", fd);
+      const res = await postForm("/auction/admin/delete-bid", fd);
       if (!res.ok) {
         alert(res.error || "Unable to delete bid");
       }
@@ -49,7 +49,7 @@ async function refreshSessions() {
     return;
   }
 
-  const response = await fetch("/admin/session/list");
+  const response = await fetch("/auction/admin/session/list");
   const result = await response.json();
   if (!result.ok) {
     if (sessionStatus) {
@@ -105,7 +105,7 @@ if (managerForm) {
       return;
     }
     const data = new FormData(managerForm);
-    const res = await postForm("/admin/create-manager", data);
+    const res = await postForm("/auction/admin/create-manager", data);
     credResult.textContent = res.ok
       ? `Credentials created. Temporary password for team ${res.team_id}: ${res.temporary_password}`
       : `Error: ${res.error}`;
@@ -118,7 +118,7 @@ if (managerForm) {
 if (phaseForm) {
   phaseForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await postForm("/admin/set-phase", new FormData(phaseForm));
+    const res = await postForm("/auction/admin/set-phase", new FormData(phaseForm));
     if (!res.ok) {
       alert(res.error || "Phase update failed");
     }
@@ -127,7 +127,7 @@ if (phaseForm) {
 
 if (nominateBtn) {
   nominateBtn.addEventListener("click", async () => {
-    const res = await postForm("/admin/nominate-next", new FormData());
+    const res = await postForm("/auction/admin/nominate-next", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to sell current lot and nominate next");
     }
@@ -136,7 +136,7 @@ if (nominateBtn) {
 
 if (previousBtn) {
   previousBtn.addEventListener("click", async () => {
-    const res = await postForm("/admin/previous-player", new FormData());
+    const res = await postForm("/auction/admin/previous-player", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to go to previous player");
     }
@@ -145,7 +145,7 @@ if (previousBtn) {
 
 if (closeBtn) {
   closeBtn.addEventListener("click", async () => {
-    const res = await postForm("/admin/close-current", new FormData());
+    const res = await postForm("/auction/admin/close-current", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to close lot");
     }
@@ -157,7 +157,7 @@ if (completeBtn) {
     if (!confirm("Complete draft and run incomplete-team penalty?")) {
       return;
     }
-    const res = await postForm("/admin/complete-draft", new FormData());
+    const res = await postForm("/auction/admin/complete-draft", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to complete draft");
     }
@@ -169,7 +169,7 @@ if (saveSessionBtn) {
     const fd = new FormData();
     fd.append("session_name", (sessionNameInput?.value || "").trim());
     fd.append("overwrite", overwriteSessionCheckbox?.checked ? "true" : "false");
-    const res = await postForm("/admin/session/save", fd);
+    const res = await postForm("/auction/admin/session/save", fd);
     if (!res.ok) {
       sessionStatus.textContent = `Error: ${res.error || "Unable to save session"}`;
       return;
@@ -194,7 +194,7 @@ if (publishSessionBtn) {
       return;
     }
 
-    const res = await postForm("/admin/publish-session", fd);
+    const res = await postForm("/auction/admin/publish-session", fd);
     if (!res.ok) {
       if (publishStatus) {
         publishStatus.textContent = `Error: ${res.error || "Unable to publish session"}`;
@@ -227,7 +227,7 @@ if (loadSessionBtn) {
 
     const fd = new FormData();
     fd.append("session_file", selected);
-    const res = await postForm("/admin/session/load", fd);
+    const res = await postForm("/auction/admin/session/load", fd);
     if (!res.ok) {
       sessionStatus.textContent = `Error: ${res.error || "Unable to load session"}`;
       return;
@@ -263,7 +263,7 @@ document.querySelectorAll(".edit-player-btn").forEach((btn) => {
     fd.append("name", name);
     fd.append("tier", tier);
 
-    const res = await postForm("/admin/update-player", fd);
+    const res = await postForm("/auction/admin/update-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update player");
     }
@@ -283,7 +283,7 @@ document.querySelectorAll(".delete-player-btn").forEach((btn) => {
 
     const fd = new FormData();
     fd.append("player_id", playerId);
-    const res = await postForm("/admin/delete-player", fd);
+    const res = await postForm("/auction/admin/delete-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete player");
     }
@@ -312,7 +312,7 @@ document.querySelectorAll(".edit-manager-btn").forEach((btn) => {
     fd.append("username", username);
     fd.append("display_name", displayName);
 
-    const res = await postForm("/admin/update-manager", fd);
+    const res = await postForm("/auction/admin/update-manager", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update manager");
     }
@@ -331,7 +331,7 @@ document.querySelectorAll(".delete-manager-btn").forEach((btn) => {
 
     const fd = new FormData();
     fd.append("manager_username", managerUsername);
-    const res = await postForm("/admin/delete-manager", fd);
+    const res = await postForm("/auction/admin/delete-manager", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete manager");
     }
@@ -361,7 +361,7 @@ document.querySelectorAll(".edit-team-btn").forEach((btn) => {
     fd.append("team_name", teamName);
     fd.append("manager_tier", managerTier);
 
-    const res = await postForm("/admin/update-team", fd);
+    const res = await postForm("/auction/admin/update-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update team");
     }
@@ -381,7 +381,7 @@ document.querySelectorAll(".delete-team-btn").forEach((btn) => {
 
     const fd = new FormData();
     fd.append("team_id", teamId);
-    const res = await postForm("/admin/delete-team", fd);
+    const res = await postForm("/auction/admin/delete-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete team");
     }

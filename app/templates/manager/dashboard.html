@@ -9,6 +9,7 @@
     <p>Phase: <span class="badge" id="phaseBadge">{{ state.phase }}</span></p>
     <div class="chip-row">
       <span class="chip">Team: {{ my_team.name }}</span>
+      <span class="chip">Manager Speciality: <strong>{{ (my_team.manager_speciality or '-')|replace('_', ' ')|title }}</strong></span>
       <span class="chip">Purse: <strong id="myPurse">{{ my_team.purse_remaining }}</strong></span>
       <span class="chip">Credits: <strong id="myCredits">{{ my_team.credits_remaining }}</strong></span>
       <span class="chip">Active Bought: <strong id="myActive">{{ my_team.players|length }}</strong>/3</span>
@@ -21,7 +22,7 @@
       <div class="lot-meta">
         <h3>Current Lot</h3>
         {% if state.current_player %}
-          <p id="lotTitle">{{ state.current_player.name }} ({{ state.current_player.tier }})</p>
+          <p id="lotTitle">{{ state.current_player.name }} ({{ state.current_player.tier }}, {{ (state.current_player.speciality or '-')|replace('_', ' ')|title }})</p>
           <p>Base: <span id="lotBase">{{ state.current_player.base_price }}</span></p>
           <p>Current: <span id="lotCurrent">{{ state.current_player.current_bid }}</span></p>
           <p>Highest Bidder: <span id="lotBidder">{{ state.current_player.current_bidder_team_name or '-' }}</span></p>
@@ -77,7 +78,7 @@
           {% for pid in my_team.players %}
             {% for p in state.players %}
               {% if p.id == pid %}
-              <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }})</option>
+              <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }}, {{ (p.speciality or '-')|replace('_', ' ')|title }})</option>
               {% endif %}
             {% endfor %}
           {% endfor %}
@@ -101,7 +102,7 @@
           <option value="">No requested player (transfer)</option>
           {% for p in state.players %}
             {% if p.status == 'sold' and p.sold_to != my_team.id %}
-            <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }})</option>
+            <option value="{{ p.id }}">{{ p.name }} ({{ p.tier }}, {{ (p.speciality or '-')|replace('_', ' ')|title }})</option>
             {% endif %}
           {% endfor %}
         </select>
@@ -173,13 +174,14 @@
     <div class="table-wrap">
       <table id="playersTable">
         <thead>
-          <tr><th>Name</th><th>Tier</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+          <tr><th>Name</th><th>Tier</th><th>Speciality</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
         </thead>
         <tbody>
         {% for p in state.players %}
           <tr>
             <td>{{ p.name }}</td>
             <td>{{ p.tier }}</td>
+            <td>{{ (p.speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ p.status }}</td>
             <td>{{ p.current_bid }}</td>
             <td>{{ p.sold_to_team_name or '-' }}</td>

@@ -20,11 +20,20 @@ from app.rules import (
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/auction/admin")
 
+SPECIALITIES = {"ALL_ROUNDER", "BATTER", "BOWLER"}
+
 
 def _ensure_setup_phase():
     state = current_app.extensions["auction_service"].get_state()
     if state.get("phase") != PHASE_SETUP:
         raise ValueError("This action is only allowed during setup phase")
+
+
+def _normalize_speciality(raw_value: str) -> str:
+    value = (raw_value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if value not in SPECIALITIES:
+        raise ValueError("Speciality must be one of: ALL_ROUNDER, BATTER, BOWLER")
+    return value
 
 
 def _session_dir() -> Path:
@@ -81,11 +90,13 @@ def dashboard():
 def create_manager():
     auth_service = current_app.extensions["auth_service"]
     try:
+        speciality = _normalize_speciality(request.form.get("speciality", ""))
         result = auth_service.create_manager(
             username=request.form.get("username", "").strip(),
             display_name=request.form.get("display_name", "").strip(),
             team_name=request.form.get("team_name", "").strip(),
             manager_tier=request.form.get("manager_tier", "silver").strip().lower(),
+            speciality=speciality,
         )
         current_app.extensions["auction_service"].setup_team_budgets()
         socketio.emit("state_update", current_app.extensions["auction_service"].get_state())
@@ -99,12 +110,15 @@ def create_manager():
 def add_player():
     tier = request.form.get("tier", "silver").strip().lower()
     name = request.form.get("name", "").strip()
+    speciality = request.form.get("speciality", "")
     auction_service = current_app.extensions["auction_service"]
     store = current_app.extensions["store"]
 
     from app.rules import TIER_BASE_PRICE, TIER_CREDIT_COST
 
     try:
+        _ensure_setup_phase()
+        normalized_speciality = _normalize_speciality(speciality)
         with store.write() as db:
             db.table("players").insert(
                 {
@@ -120,6 +134,7 @@ def add_player():
                     "current_bid": 0,
                     "current_bidder_team_id": None,
                     "nominated_phase_a": False,
+                    "speciality": normalized_speciality,
                 }
             )
         socketio.emit("state_update", auction_service.get_state())
@@ -135,6 +150,7 @@ def update_player():
     player_id = request.form.get("player_id", "").strip()
     name = request.form.get("name", "").strip()
     tier = request.form.get("tier", "").strip().lower()
+    speciality = request.form.get("speciality", "")
 
     if not player_id:
         return jsonify({"ok": False, "error": "Missing player id"}), 400
@@ -148,6 +164,7 @@ def update_player():
 
     try:
         _ensure_setup_phase()
+        normalized_speciality = _normalize_speciality(speciality)
         Player = Query()
         store = current_app.extensions["store"]
         auction_service = current_app.extensions["auction_service"]
@@ -163,6 +180,7 @@ def update_player():
                     "tier": tier,
                     "base_price": TIER_BASE_PRICE[tier],
                     "credits": TIER_CREDIT_COST[tier],
+                    "speciality": normalized_speciality,
                 },
                 Player.id == player_id,
             )
@@ -224,6 +242,7 @@ def update_manager():
     manager_username = request.form.get("manager_username", "").strip()
     username = request.form.get("username", "").strip()
     display_name = request.form.get("display_name", "").strip()
+    speciality = request.form.get("speciality", "")
 
     if not manager_username:
         return jsonify({"ok": False, "error": "Missing manager username"}), 400
@@ -234,6 +253,7 @@ def update_manager():
 
     try:
         _ensure_setup_phase()
+        normalized_speciality = _normalize_speciality(speciality)
         User = Query()
         Team = Query()
         store = current_app.extensions["store"]
@@ -255,6 +275,7 @@ def update_manager():
                 {
                     "username": username,
                     "display_name": display_name,
+                    "speciality": normalized_speciality,
                 },
                 User.username == manager_username,
             )

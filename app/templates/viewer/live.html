@@ -10,7 +10,7 @@
       <div class="lot-meta">
         {% if state.current_player %}
         <div class="lot">
-          <h3>{{ state.current_player.name }} ({{ state.current_player.tier }})</h3>
+          <h3>{{ state.current_player.name }} ({{ state.current_player.tier }}, {{ (state.current_player.speciality or '-')|replace('_', ' ')|title }})</h3>
           <p>Base {{ state.current_player.base_price }} | Current {{ state.current_player.current_bid }}</p>
           <p>Highest Bidder: {{ state.current_player.current_bidder_team_name or '-' }}</p>
         </div>
@@ -65,13 +65,14 @@
     <div class="table-wrap">
       <table id="teamsTable">
         <thead>
-          <tr><th>Team</th><th>Manager</th><th>Players</th><th>Bench</th></tr>
+          <tr><th>Team</th><th>Manager</th><th>Manager Speciality</th><th>Players</th><th>Bench</th></tr>
         </thead>
         <tbody>
           {% for t in state.teams %}
           <tr>
             <td>{{ t.name }}</td>
             <td>{{ t.manager_name }}</td>
+            <td>{{ (t.manager_speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ t.player_labels|join(', ') if t.player_labels else '-' }}</td>
             <td>{{ t.bench_labels|join(', ') if t.bench_labels else '-' }}</td>
           </tr>
@@ -86,13 +87,14 @@
     <div class="table-wrap">
       <table id="playersTable">
         <thead>
-          <tr><th>Name</th><th>Tier</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
+          <tr><th>Name</th><th>Tier</th><th>Speciality</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th></tr>
         </thead>
         <tbody>
           {% for p in state.players %}
           <tr>
             <td>{{ p.name }}</td>
             <td>{{ p.tier }}</td>
+            <td>{{ (p.speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ p.status }}</td>
             <td>{{ p.current_bid }}</td>
             <td>{{ p.sold_to_team_name or '-' }}</td>

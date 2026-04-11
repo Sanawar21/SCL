@@ -35,6 +35,7 @@
         {% if state.current_player %}
           <p><strong>Player:</strong> {{ state.current_player.name }}</p>
           <p><strong>Tier:</strong> {{ state.current_player.tier|title }}</p>
+          <p><strong>Speciality:</strong> {{ (state.current_player.speciality or '-')|replace('_', ' ')|title }}</p>
           <p><strong>Base Price:</strong> {{ state.current_player.base_price }}</p>
           <p><strong>Highest Bid:</strong> {{ state.current_player.current_bid }}</p>
           <p><strong>Highest Bidder:</strong> {{ state.current_player.current_bidder_team_name or '-' }}</p>
@@ -122,6 +123,11 @@
         <option value="gold">Gold Manager</option>
         <option value="platinum">Platinum Manager</option>
       </select>
+      <select name="speciality" required>
+        <option value="ALL_ROUNDER">All-Rounder</option>
+        <option value="BATTER">Batter</option>
+        <option value="BOWLER">Bowler</option>
+      </select>
       <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Create Manager</button>
     </form>
     <p id="credResult" class="mono"></p>
@@ -136,6 +142,11 @@
         <option value="gold">Gold</option>
         <option value="platinum">Platinum</option>
       </select>
+      <select name="speciality" required>
+        <option value="ALL_ROUNDER">All-Rounder</option>
+        <option value="BATTER">Batter</option>
+        <option value="BOWLER">Bowler</option>
+      </select>
       <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Add Player</button>
     </form>
   </div>
@@ -145,13 +156,14 @@
     <div class="table-wrap">
       <table id="managerTable">
         <thead>
-          <tr><th>Username</th><th>Name</th><th>Team</th><th>Action</th></tr>
+          <tr><th>Username</th><th>Name</th><th>Speciality</th><th>Team</th><th>Action</th></tr>
         </thead>
         <tbody>
         {% for m in state.managers %}
           <tr>
             <td>{{ m.username }}</td>
             <td>{{ m.display_name }}</td>
+            <td>{{ (m.speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ m.team_name or '-' }}</td>
             <td>
               <button
@@ -159,6 +171,7 @@
                 type="button"
                 data-username="{{ m.username }}"
                 data-display-name="{{ m.display_name }}"
+                data-speciality="{{ m.speciality or 'ALL_ROUNDER' }}"
                 {% if state.phase != 'setup' %}disabled{% endif %}
               >Edit</button>
               <button
@@ -180,13 +193,14 @@
     <div class="table-wrap">
       <table id="setupTeamTable">
         <thead>
-          <tr><th>Team</th><th>Manager</th><th>Manager Tier</th><th>Action</th></tr>
+          <tr><th>Team</th><th>Manager</th><th>Manager Speciality</th><th>Manager Tier</th><th>Action</th></tr>
         </thead>
         <tbody>
         {% for t in state.teams %}
           <tr>
             <td>{{ t.name }}</td>
             <td>{{ t.manager_name }}</td>
+            <td>{{ (t.manager_speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ t.manager_tier|title }}</td>
             <td>
               <button
@@ -239,13 +253,14 @@
     <div class="table-wrap">
       <table id="playerTable">
         <thead>
-          <tr><th>Name</th><th>Tier</th><th>Base</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th><th>Action</th></tr>
+          <tr><th>Name</th><th>Tier</th><th>Speciality</th><th>Base</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th><th>Action</th></tr>
         </thead>
         <tbody>
         {% for p in state.players %}
           <tr>
             <td>{{ p.name }}</td>
             <td>{{ p.tier }}</td>
+            <td>{{ (p.speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ p.base_price }}</td>
             <td>{{ p.status }}</td>
             <td>{{ p.current_bid }}</td>
@@ -258,6 +273,7 @@
                 data-player-id="{{ p.id }}"
                 data-player-name="{{ p.name }}"
                 data-player-tier="{{ p.tier }}"
+                data-player-speciality="{{ p.speciality or 'ALL_ROUNDER' }}"
                 {% if state.phase != 'setup' %}disabled{% endif %}
               >Edit</button>
               <button

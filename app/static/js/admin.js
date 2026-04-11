@@ -84,18 +84,132 @@ function ensureSetupPhase() {
   return false;
 }
 
-function pickTier(defaultTier) {
-  const value = (prompt("Enter tier (silver/gold/platinum)", defaultTier || "silver") || "")
-    .trim()
-    .toLowerCase();
-  if (!value) {
-    return null;
+const TIER_OPTIONS = ["silver", "gold", "platinum"];
+const SPECIALITY_OPTIONS = [
+  { value: "ALL_ROUNDER", label: "All-Rounder" },
+  { value: "BATTER", label: "Batter" },
+  { value: "BOWLER", label: "Bowler" },
+];
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function tierOptionsHtml(selected) {
+  return TIER_OPTIONS
+    .map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value[0].toUpperCase()}${value.slice(1)}</option>`)
+    .join("");
+}
+
+function specialityOptionsHtml(selected) {
+  return SPECIALITY_OPTIONS
+    .map((option) => `<option value="${option.value}" ${option.value === selected ? "selected" : ""}>${option.label}</option>`)
+    .join("");
+}
+
+function startInlineEdit(row, html) {
+  if (!row || row.dataset.inlineEditing === "true") {
+    return;
   }
-  if (!["silver", "gold", "platinum"].includes(value)) {
-    alert("Tier must be one of: silver, gold, platinum.");
-    return null;
+  row.dataset.inlineEditing = "true";
+  row.dataset.originalHtml = row.innerHTML;
+  row.innerHTML = html;
+}
+
+function cancelInlineEdit(row) {
+  if (!row || !row.dataset.originalHtml) {
+    return;
   }
-  return value;
+  row.innerHTML = row.dataset.originalHtml;
+  delete row.dataset.originalHtml;
+  delete row.dataset.inlineEditing;
+}
+
+function startPlayerInlineEdit(btn) {
+  const row = btn.closest("tr");
+  if (!row) {
+    return;
+  }
+  const cells = row.querySelectorAll("td");
+  const playerId = btn.getAttribute("data-player-id") || "";
+  const name = btn.getAttribute("data-player-name") || "";
+  const tier = btn.getAttribute("data-player-tier") || "silver";
+  const speciality = btn.getAttribute("data-player-speciality") || "ALL_ROUNDER";
+  const base = cells[3]?.textContent?.trim() || "";
+  const status = cells[4]?.textContent?.trim() || "";
+  const currentBid = cells[5]?.textContent?.trim() || "";
+  const soldTo = cells[6]?.textContent?.trim() || "";
+  const soldPrice = cells[7]?.textContent?.trim() || "";
+
+  startInlineEdit(
+    row,
+    `<td><input class="inline-player-name" value="${escapeHtml(name)}"></td>
+     <td><select class="inline-player-tier">${tierOptionsHtml(tier)}</select></td>
+     <td><select class="inline-player-speciality">${specialityOptionsHtml(speciality)}</select></td>
+     <td>${escapeHtml(base)}</td>
+     <td>${escapeHtml(status)}</td>
+     <td>${escapeHtml(currentBid)}</td>
+     <td>${escapeHtml(soldTo)}</td>
+     <td>${escapeHtml(soldPrice)}</td>
+     <td>
+       <button class="btn save-player-inline" type="button" data-player-id="${escapeHtml(playerId)}">Save</button>
+       <button class="btn btn-outline cancel-inline" type="button">Cancel</button>
+     </td>`
+  );
+}
+
+function startManagerInlineEdit(btn) {
+  const row = btn.closest("tr");
+  if (!row) {
+    return;
+  }
+  const cells = row.querySelectorAll("td");
+  const username = btn.getAttribute("data-username") || "";
+  const displayName = btn.getAttribute("data-display-name") || "";
+  const speciality = btn.getAttribute("data-speciality") || "ALL_ROUNDER";
+  const team = cells[3]?.textContent?.trim() || "";
+
+  startInlineEdit(
+    row,
+    `<td><input class="inline-manager-username" value="${escapeHtml(username)}"></td>
+     <td><input class="inline-manager-display-name" value="${escapeHtml(displayName)}"></td>
+     <td><select class="inline-manager-speciality">${specialityOptionsHtml(speciality)}</select></td>
+     <td>${escapeHtml(team)}</td>
+     <td>
+       <button class="btn save-manager-inline" type="button" data-manager-username="${escapeHtml(username)}">Save</button>
+       <button class="btn btn-outline cancel-inline" type="button">Cancel</button>
+     </td>`
+  );
+}
+
+function startTeamInlineEdit(btn) {
+  const row = btn.closest("tr");
+  if (!row) {
+    return;
+  }
+  const cells = row.querySelectorAll("td");
+  const teamId = btn.getAttribute("data-team-id") || "";
+  const teamName = btn.getAttribute("data-team-name") || "";
+  const managerTier = btn.getAttribute("data-manager-tier") || "silver";
+  const manager = cells[1]?.textContent?.trim() || "";
+  const managerSpeciality = cells[2]?.textContent?.trim() || "-";
+
+  startInlineEdit(
+    row,
+    `<td><input class="inline-team-name" value="${escapeHtml(teamName)}"></td>
+     <td>${escapeHtml(manager)}</td>
+      <td>${escapeHtml(managerSpeciality)}</td>
+     <td><select class="inline-team-tier">${tierOptionsHtml(managerTier)}</select></td>
+     <td>
+       <button class="btn save-team-inline" type="button" data-team-id="${escapeHtml(teamId)}">Save</button>
+       <button class="btn btn-outline cancel-inline" type="button">Cancel</button>
+     </td>`
+  );
 }
 
 if (managerForm) {
@@ -240,21 +354,33 @@ if (loadSessionBtn) {
 wireDeleteBidButtons();
 refreshSessions();
 
-document.querySelectorAll(".edit-player-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+document.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) {
+    return;
+  }
+
+  if (btn.classList.contains("cancel-inline")) {
+    cancelInlineEdit(btn.closest("tr"));
+    return;
+  }
+
+  if (btn.classList.contains("edit-player-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
-    const playerId = btn.getAttribute("data-player-id");
-    const currentName = btn.getAttribute("data-player-name") || "";
-    const currentTier = btn.getAttribute("data-player-tier") || "silver";
+    startPlayerInlineEdit(btn);
+    return;
+  }
 
-    const name = (prompt("Edit player name", currentName) || "").trim();
+  if (btn.classList.contains("save-player-inline")) {
+    const row = btn.closest("tr");
+    const playerId = btn.getAttribute("data-player-id") || "";
+    const name = row?.querySelector(".inline-player-name")?.value?.trim() || "";
+    const tier = row?.querySelector(".inline-player-tier")?.value || "";
+    const speciality = row?.querySelector(".inline-player-speciality")?.value || "";
     if (!name) {
-      return;
-    }
-    const tier = pickTier(currentTier);
-    if (!tier) {
+      alert("Player name is required");
       return;
     }
 
@@ -262,20 +388,21 @@ document.querySelectorAll(".edit-player-btn").forEach((btn) => {
     fd.append("player_id", playerId);
     fd.append("name", name);
     fd.append("tier", tier);
-
+    fd.append("speciality", speciality);
     const res = await postForm("/auction/admin/update-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update player");
+      return;
     }
-  });
-});
+    window.location.reload();
+    return;
+  }
 
-document.querySelectorAll(".delete-player-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  if (btn.classList.contains("delete-player-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
-    const playerId = btn.getAttribute("data-player-id");
+    const playerId = btn.getAttribute("data-player-id") || "";
     const name = btn.getAttribute("data-player-name") || "this player";
     if (!confirm(`Delete player ${name}?`)) {
       return;
@@ -286,24 +413,28 @@ document.querySelectorAll(".delete-player-btn").forEach((btn) => {
     const res = await postForm("/auction/admin/delete-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete player");
+      return;
     }
-  });
-});
+    window.location.reload();
+    return;
+  }
 
-document.querySelectorAll(".edit-manager-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  if (btn.classList.contains("edit-manager-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
-    const managerUsername = btn.getAttribute("data-username") || "";
-    const currentName = btn.getAttribute("data-display-name") || "";
+    startManagerInlineEdit(btn);
+    return;
+  }
 
-    const username = (prompt("Edit manager username", managerUsername) || "").trim();
-    if (!username) {
-      return;
-    }
-    const displayName = (prompt("Edit manager display name", currentName) || "").trim();
-    if (!displayName) {
+  if (btn.classList.contains("save-manager-inline")) {
+    const row = btn.closest("tr");
+    const managerUsername = btn.getAttribute("data-manager-username") || "";
+    const username = row?.querySelector(".inline-manager-username")?.value?.trim() || "";
+    const displayName = row?.querySelector(".inline-manager-display-name")?.value?.trim() || "";
+    const speciality = row?.querySelector(".inline-manager-speciality")?.value || "";
+    if (!username || !displayName) {
+      alert("Username and display name are required");
       return;
     }
 
@@ -311,16 +442,17 @@ document.querySelectorAll(".edit-manager-btn").forEach((btn) => {
     fd.append("manager_username", managerUsername);
     fd.append("username", username);
     fd.append("display_name", displayName);
-
+    fd.append("speciality", speciality);
     const res = await postForm("/auction/admin/update-manager", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update manager");
+      return;
     }
-  });
-});
+    window.location.reload();
+    return;
+  }
 
-document.querySelectorAll(".delete-manager-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  if (btn.classList.contains("delete-manager-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
@@ -334,25 +466,27 @@ document.querySelectorAll(".delete-manager-btn").forEach((btn) => {
     const res = await postForm("/auction/admin/delete-manager", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete manager");
+      return;
     }
-  });
-});
+    window.location.reload();
+    return;
+  }
 
-document.querySelectorAll(".edit-team-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  if (btn.classList.contains("edit-team-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
-    const teamId = btn.getAttribute("data-team-id") || "";
-    const currentName = btn.getAttribute("data-team-name") || "";
-    const currentTier = btn.getAttribute("data-manager-tier") || "silver";
+    startTeamInlineEdit(btn);
+    return;
+  }
 
-    const teamName = (prompt("Edit team name", currentName) || "").trim();
+  if (btn.classList.contains("save-team-inline")) {
+    const row = btn.closest("tr");
+    const teamId = btn.getAttribute("data-team-id") || "";
+    const teamName = row?.querySelector(".inline-team-name")?.value?.trim() || "";
+    const managerTier = row?.querySelector(".inline-team-tier")?.value || "";
     if (!teamName) {
-      return;
-    }
-    const managerTier = pickTier(currentTier);
-    if (!managerTier) {
+      alert("Team name is required");
       return;
     }
 
@@ -360,16 +494,16 @@ document.querySelectorAll(".edit-team-btn").forEach((btn) => {
     fd.append("team_id", teamId);
     fd.append("team_name", teamName);
     fd.append("manager_tier", managerTier);
-
     const res = await postForm("/auction/admin/update-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update team");
+      return;
     }
-  });
-});
+    window.location.reload();
+    return;
+  }
 
-document.querySelectorAll(".delete-team-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
+  if (btn.classList.contains("delete-team-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
@@ -384,8 +518,10 @@ document.querySelectorAll(".delete-team-btn").forEach((btn) => {
     const res = await postForm("/auction/admin/delete-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete team");
+      return;
     }
-  });
+    window.location.reload();
+  }
 });
 
 socket.on("state_update", () => {

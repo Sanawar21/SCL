@@ -98,6 +98,7 @@ class AuctionService:
                         if manager_user
                         else "-"
                     ),
+                    "manager_speciality": manager_user.get("speciality", "-") if manager_user else "-",
                     "player_labels": player_labels,
                     "bench_labels": bench_labels,
                 }
@@ -111,6 +112,7 @@ class AuctionService:
                 {
                     "username": m.get("username"),
                     "display_name": m.get("display_name", m.get("username", "")),
+                    "speciality": m.get("speciality", "-"),
                     "team_id": m.get("team_id"),
                     "team_name": teams_by_id.get(m.get("team_id"), {}).get("name", "-"),
                 }
@@ -189,6 +191,7 @@ class AuctionService:
                             "id": secrets.token_hex(8),
                             "name": name,
                             "tier": tier,
+                            "speciality": "ALL_ROUNDER",
                             "base_price": TIER_BASE_PRICE[tier],
                             "status": "unsold",
                             "sold_to": None,
@@ -206,6 +209,8 @@ class AuctionService:
                 for p in player_table.all():
                     if "nominated_phase_a" not in p:
                         player_table.update({"nominated_phase_a": False}, Player.id == p["id"])
+                    if "speciality" not in p:
+                        player_table.update({"speciality": "ALL_ROUNDER"}, Player.id == p["id"])
 
             # Backfill older bid records with a stable id so admin can delete specific bids.
             for b in bids_table.all():
@@ -822,4 +827,10 @@ class AuctionService:
             user = db.table("users").get(lambda u: u.get("username") == username)
             if not user:
                 return None
-            return db.table("teams").get(Query().id == user.get("team_id"))
+            team = db.table("teams").get(Query().id == user.get("team_id"))
+            if not team:
+                return None
+            return {
+                **team,
+                "manager_speciality": user.get("speciality", "-"),
+            }

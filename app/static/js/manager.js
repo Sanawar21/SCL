@@ -13,6 +13,13 @@ const plusButtons = document.querySelectorAll("[data-add]");
 const initialStateNode = document.getElementById("initialState");
 let latestState = initialStateNode ? JSON.parse(initialStateNode.textContent) : {};
 
+function formatSpeciality(value) {
+  return String(value || "-")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function toInt(v) {
   return Number.parseInt(v, 10) || 0;
 }
@@ -104,7 +111,7 @@ function refreshView(state) {
 
   const current = state.current_player;
   document.getElementById("lotTitle").textContent = current
-    ? `${current.name} (${current.tier})`
+    ? `${current.name} (${current.tier}, ${formatSpeciality(current.speciality)})`
     : "No player nominated";
   document.getElementById("lotBase").textContent = current ? current.base_price : "-";
   document.getElementById("lotCurrent").textContent = current ? current.current_bid : 0;
@@ -130,7 +137,7 @@ function refreshView(state) {
       if (playersBody) {
         playersBody.innerHTML = managerState.players
           .map(
-            (p) => `<tr><td>${p.name}</td><td>${p.tier}</td><td>${p.status}</td><td>${p.current_bid}</td><td>${p.sold_to_team_name || "-"}</td><td>${p.sold_price}</td></tr>`
+            (p) => `<tr><td>${p.name}</td><td>${p.tier}</td><td>${formatSpeciality(p.speciality)}</td><td>${p.status}</td><td>${p.current_bid}</td><td>${p.sold_to_team_name || "-"}</td><td>${p.sold_price}</td></tr>`
           )
           .join("");
       }

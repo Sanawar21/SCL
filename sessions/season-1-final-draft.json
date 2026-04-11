@@ -553,7 +553,8 @@
         "credits": 3,
         "current_bid": 1500,
         "current_bidder_team_id": "77cd285d020c1497",
-        "nominated_phase_a": false
+        "nominated_phase_a": false,
+        "speciality": "ALL_ROUNDER"
       },
       {
         "id": "ab6174c7950eb199",
@@ -567,7 +568,8 @@
         "credits": 3,
         "current_bid": 1500,
         "current_bidder_team_id": "77cd285d020c1497",
-        "nominated_phase_a": false
+        "nominated_phase_a": false,
+        "speciality": "ALL_ROUNDER"
       },
       {
         "id": "a22739127524352c",
@@ -581,7 +583,8 @@
         "credits": 2,
         "current_bid": 1700,
         "current_bidder_team_id": "dedfeeda5fe012df",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BATTER"
       },
       {
         "id": "3e3b19e772e1d7e3",
@@ -595,7 +598,9 @@
         "credits": 2,
         "current_bid": 900,
         "current_bidder_team_id": "dedfeeda5fe012df",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
+
       },
       {
         "id": "a2b317262b1f608d",
@@ -609,7 +614,8 @@
         "credits": 2,
         "current_bid": 1700,
         "current_bidder_team_id": "8a7bb34d0a736b7a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       },
       {
         "id": "0e88b0b4606c391e",
@@ -623,7 +629,8 @@
         "credits": 2,
         "current_bid": 1150,
         "current_bidder_team_id": "5e07309bd856551a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       },
       {
         "id": "c36e19e88f7d0d47",
@@ -637,7 +644,8 @@
         "credits": 2,
         "current_bid": 1500,
         "current_bidder_team_id": "8a7bb34d0a736b7a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "ALL_ROUNDER"
       },
       {
         "id": "c36e19e88f7d0d48",
@@ -651,7 +659,8 @@
         "credits": 2,
         "current_bid": 2400,
         "current_bidder_team_id": "5e07309bd856551a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "ALL_ROUNDER"
       },
       {
         "id": "84667e6c8bd740e3",
@@ -665,7 +674,8 @@
         "credits": 1,
         "current_bid": 750,
         "current_bidder_team_id": "77cd285d020c1497",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       },
       {
         "id": "9f72bbb514ecb0a2",
@@ -679,7 +689,8 @@
         "credits": 1,
         "current_bid": 450,
         "current_bidder_team_id": "5e07309bd856551a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BATTER"
       },
       {
         "id": "35d0f60271db86d7",
@@ -693,7 +704,8 @@
         "credits": 1,
         "current_bid": 450,
         "current_bidder_team_id": "8a7bb34d0a736b7a",
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       },
       {
         "id": "4210415486fe1f40",
@@ -707,7 +719,8 @@
         "credits": 1,
         "current_bid": 0,
         "current_bidder_team_id": null,
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       },
       {
         "id": "5de7065d13afe0aa",
@@ -721,7 +734,8 @@
         "credits": 1,
         "current_bid": 0,
         "current_bidder_team_id": null,
-        "nominated_phase_a": true
+        "nominated_phase_a": true,
+        "speciality": "BOWLER"
       }
     ],
     "teams": [
@@ -800,28 +814,32 @@
         "password_hash": "scrypt:32768:8:1$70FPSsfKyhfqLBt2$b3e4515d0ef0921c88a48422260de38194fd1edc792a2024f7bebc731fe8f9d0a9ce072a1fed49de832f5e2b3979bdf5aaf523633e7215f296e20c481dfc1d04",
         "role": "manager",
         "display_name": "Hassan",
-        "team_id": "8a7bb34d0a736b7a"
+        "team_id": "8a7bb34d0a736b7a",
+        "speciality": "ALL_ROUNDER"
       },
       {
         "username": "Hashir",
         "password_hash": "scrypt:32768:8:1$70FPSsfKyhfqLBt2$b3e4515d0ef0921c88a48422260de38194fd1edc792a2024f7bebc731fe8f9d0a9ce072a1fed49de832f5e2b3979bdf5aaf523633e7215f296e20c481dfc1d04",
         "role": "manager",
         "display_name": "Hashir",
-        "team_id": "77cd285d020c1497"
+        "team_id": "77cd285d020c1497",
+        "speciality": "BATTER"
       },
       {
         "username": "Osama",
         "password_hash": "scrypt:32768:8:1$70FPSsfKyhfqLBt2$b3e4515d0ef0921c88a48422260de38194fd1edc792a2024f7bebc731fe8f9d0a9ce072a1fed49de832f5e2b3979bdf5aaf523633e7215f296e20c481dfc1d04",
         "role": "manager",
         "display_name": "Osama",
-        "team_id": "dedfeeda5fe012df"
+        "team_id": "dedfeeda5fe012df",
+        "speciality": "BOWLER"
       },
       {
         "username": "Owais",
         "password_hash": "scrypt:32768:8:1$70FPSsfKyhfqLBt2$b3e4515d0ef0921c88a48422260de38194fd1edc792a2024f7bebc731fe8f9d0a9ce072a1fed49de832f5e2b3979bdf5aaf523633e7215f296e20c481dfc1d04",
         "role": "manager",
         "display_name": "Owais",
-        "team_id": "5e07309bd856551a"
+        "team_id": "5e07309bd856551a",
+        "speciality": "BATTER"
       }
     ]
   }

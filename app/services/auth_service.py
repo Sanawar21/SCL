@@ -37,7 +37,7 @@ class AuthService:
                 "team_id": user.get("team_id"),
             }
 
-    def create_manager(self, username: str, display_name: str, team_name: str, manager_tier: str):
+    def create_manager(self, username: str, display_name: str, team_name: str, manager_tier: str, speciality: str):
         # temp_password = secrets.token_urlsafe(8)
         temp_password = "password123" # TODO: Remove this 
         with self.store.write() as db:
@@ -53,6 +53,7 @@ class AuthService:
                     "password_hash": generate_password_hash(temp_password),
                     "role": ROLE_MANAGER,
                     "display_name": display_name,
+                    "speciality": speciality,
                     "team_id": team_id,
                 }
             )

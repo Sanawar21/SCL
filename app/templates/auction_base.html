@@ -9,12 +9,13 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">SCL Auction Dashboard</div>
+    <div class="brand">{% block topbar_brand %}SCL Auction{% endblock %}</div>
     <nav>
+      {% block topbar_nav %}
       <a href="{{ url_for('viewer.home') }}">Home</a>
       <a href="{{ url_for('viewer.live_view') }}">Live</a>
       <a href="{{ url_for('manager.login_page') }}">Manager</a>
-      <a href="{{ url_for('admin.admin_login_page') }}">Admin</a>
+      {% endblock %}
     </nav>
   </header>
 

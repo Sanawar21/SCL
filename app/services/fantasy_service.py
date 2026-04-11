@@ -348,10 +348,33 @@ class FantasyService:
 
     def get_eligible_entrant_names(self, season_slug: str):
         lookup = self._eligible_lookup(season_slug)
+        submitted_keys = set()
+        submitted_names = set()
+
+        store = self._get_store_if_exists(season_slug)
+        if store:
+            with store.read() as db:
+                entries = db.table("fantasy_entries").all()
+            for entry in entries:
+                entrant_key = (entry.get("entrant_key") or "").strip()
+                if entrant_key:
+                    submitted_keys.add(entrant_key)
+                normalized_existing_name = self._normalize(entry.get("entrant_name") or "")
+                if normalized_existing_name:
+                    submitted_names.add(normalized_existing_name)
+
         seen = set()
         names = []
         for item in lookup.values():
+            entrant_key = (item.get("entrant_key") or "").strip()
             display_name = (item.get("entrant_display_name") or "").strip()
+            normalized_display_name = self._normalize(display_name)
+
+            if entrant_key and entrant_key in submitted_keys:
+                continue
+            if normalized_display_name and normalized_display_name in submitted_names:
+                continue
+
             key = self._normalize(display_name)
             if not key or key in seen:
                 continue
@@ -424,9 +447,18 @@ class FantasyService:
         store = self._get_enabled_season_store(season_slug)
         with store.write() as db:
             entries = db.table("fantasy_entries")
-            Entry = Query()
-            existing = entries.get(Entry.entrant_key == entry["entrant_key"])
-            if existing:
+            existing_entries = entries.all()
+            normalized_entrant_name = self._normalize(entry["entrant_name"])
+            duplicate = next(
+                (
+                    existing
+                    for existing in existing_entries
+                    if (existing.get("entrant_key") or "").strip() == entry["entrant_key"]
+                    or self._normalize(existing.get("entrant_name") or "") == normalized_entrant_name
+                ),
+                None,
+            )
+            if duplicate:
                 raise ValueError("You have already submitted a fantasy team for this season")
 
             entries.insert(entry)

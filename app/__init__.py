@@ -157,12 +157,13 @@ def create_app():
     _migrate_legacy_published_sessions(app)
     _migrate_legacy_session_snapshots(app)
 
-    from app.routes.admin import admin_bp
+    from app.routes.admin import admin_bp, unified_admin_bp
     from app.routes.fantasy import fantasy_bp
     from app.routes.manager import manager_bp
     from app.routes.viewer import viewer_bp
 
     app.register_blueprint(admin_bp)
+    app.register_blueprint(unified_admin_bp)
     app.register_blueprint(fantasy_bp)
     app.register_blueprint(manager_bp)
     app.register_blueprint(viewer_bp)

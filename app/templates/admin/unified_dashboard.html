@@ -1,0 +1,393 @@
+{% extends 'auction_base.html' %}
+{% block topbar_brand %}SCL Admin{% endblock %}
+{% block topbar_nav %}
+<a href="{{ url_for('unified_admin.dashboard', tab='auction') }}">Auction</a>
+<a href="{{ url_for('unified_admin.dashboard', tab='fantasy') }}">Fantasy</a>
+{% endblock %}
+{% block content %}
+<section class="stack" id="adminDashboard" data-is-setup="{{ 'true' if state.phase == 'setup' else 'false' }}" data-active-tab="{{ active_tab }}">
+  <div class="card">
+    <div class="row-between">
+      <h2>Admin Control Room</h2>
+      <a class="btn btn-outline" href="{{ url_for('unified_admin.admin_logout') }}">Logout</a>
+    </div>
+  </div>
+
+  <div id="adminTab-auction" class="admin-tab-panel" {% if active_tab != 'auction' %}hidden{% endif %}>
+    <div class="card">
+      <p>Phase: <span class="badge" id="phaseText">{{ state.phase }}</span></p>
+
+      <div class="grid-2">
+        <form id="phaseForm" class="inline-form">
+          <label>Set Phase</label>
+          <select name="phase">
+            <option value="phase_a_silver_gold">Phase A: Silver first, then Gold</option>
+            <option value="phase_a_break">Mid Break (Trades)</option>
+            <option value="phase_a_platinum">Phase A: Platinum</option>
+            <option value="phase_b">Phase B (Unsold @200)</option>
+          </select>
+          <button class="btn" type="submit">Update Phase</button>
+        </form>
+        <div class="stack-sm">
+          <button class="btn" id="nominateBtn">Sell Current + Nominate Next</button>
+          <button class="btn btn-outline" id="previousBtn">Previous Player</button>
+          <button class="btn btn-outline" id="closeBtn">Close Current Lot</button>
+          <button class="btn btn-danger" id="completeBtn">Complete Draft + Penalties</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="lot-top">
+        <div class="lot-meta">
+          <h3>Current Nomination</h3>
+          {% if state.current_player %}
+            <p><strong>Player:</strong> {{ state.current_player.name }}</p>
+            <p><strong>Tier:</strong> {{ state.current_player.tier|title }}</p>
+            <p><strong>Speciality:</strong> {{ (state.current_player.speciality or '-')|replace('_', ' ')|title }}</p>
+            <p><strong>Base Price:</strong> {{ state.current_player.base_price }}</p>
+            <p><strong>Highest Bid:</strong> {{ state.current_player.current_bid }}</p>
+            <p><strong>Highest Bidder:</strong> {{ state.current_player.current_bidder_team_name or '-' }}</p>
+          {% else %}
+            <p>No player is currently nominated.</p>
+          {% endif %}
+        </div>
+
+        <div class="table-wrap lot-bids-wrap">
+          <table id="adminCurrentBidsTable">
+            <thead>
+              <tr><th>Time</th><th>Team</th><th>Bid</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+            {% for b in state.current_lot_bids %}
+              <tr>
+                <td>{{ b.ts_display or '-' }}</td>
+                <td>{{ b.team_name or '-' }}</td>
+                <td>{{ b.amount }}</td>
+                <td>
+                  {% if b.bid_id %}
+                  <button class="btn btn-outline delete-bid-btn" type="button" data-bid-id="{{ b.bid_id }}">Delete</button>
+                  {% else %}
+                  -
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Session Save and Load</h3>
+      <div class="grid-2">
+        <div class="stack-sm">
+          <label for="sessionNameInput">Save current session as</label>
+          <input id="sessionNameInput" placeholder="e.g. phase-a-midpoint">
+          <button class="btn" id="saveSessionBtn" type="button">Save Session</button>
+        </div>
+        <div class="stack-sm">
+          <label for="sessionSelect">Load saved session</label>
+          <select id="sessionSelect">
+            <option value="">No saved sessions</option>
+          </select>
+          <button class="btn btn-outline" id="loadSessionBtn" type="button">Load Session</button>
+        </div>
+      </div>
+      <label class="checkbox-row">
+        <input id="overwriteSessionCheckbox" type="checkbox">
+        Overwrite if name already exists
+      </label>
+      <p id="sessionStatus" class="mono"></p>
+    </div>
+
+    <div class="card">
+      <h3>Publish Completed Auction</h3>
+      {% if state.phase != 'complete' %}
+        <p><strong>Publish is enabled after the auction is complete.</strong></p>
+      {% endif %}
+      <div class="stack-sm">
+        <label for="publishNameInput">Public name</label>
+        <input id="publishNameInput" placeholder="e.g. season-1">
+        <label for="publishSuffixInput">Public link suffix</label>
+        <input id="publishSuffixInput" placeholder="e.g. season-1">
+        <button class="btn btn-secondary" id="publishSessionBtn" type="button" {% if state.phase != 'complete' %}disabled{% endif %}>Publish Session</button>
+      </div>
+      <p>Published pages are available at /&lt;name&gt;.</p>
+      <p id="publishStatus" class="mono"></p>
+    </div>
+
+    <div class="card">
+      <h3>Create Manager Credentials</h3>
+      {% if state.phase != 'setup' %}
+        <p><strong>Setup controls are disabled outside setup phase.</strong></p>
+      {% endif %}
+      <form id="managerForm" class="grid-2">
+        <input name="username" placeholder="username" required>
+        <input name="display_name" placeholder="manager name" required>
+        <input name="team_name" placeholder="team name" required>
+        <select name="manager_tier">
+          <option value="silver">Silver Manager</option>
+          <option value="gold">Gold Manager</option>
+          <option value="platinum">Platinum Manager</option>
+        </select>
+        <select name="speciality" required>
+          <option value="ALL_ROUNDER">All-Rounder</option>
+          <option value="BATTER">Batter</option>
+          <option value="BOWLER">Bowler</option>
+        </select>
+        <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Create Manager</button>
+      </form>
+      <p id="credResult" class="mono"></p>
+    </div>
+
+    <div class="card">
+      <h3>Add Player</h3>
+      <form method="post" action="{{ url_for('admin.add_player') }}" class="grid-2">
+        <input name="name" placeholder="player name" required>
+        <select name="tier">
+          <option value="silver">Silver</option>
+          <option value="gold">Gold</option>
+          <option value="platinum">Platinum</option>
+        </select>
+        <select name="speciality" required>
+          <option value="ALL_ROUNDER">All-Rounder</option>
+          <option value="BATTER">Batter</option>
+          <option value="BOWLER">Bowler</option>
+        </select>
+        <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Add Player</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Setup: Managers</h3>
+      <div class="table-wrap">
+        <table id="managerTable">
+          <thead>
+            <tr><th>Username</th><th>Name</th><th>Speciality</th><th>Team</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for m in state.managers %}
+            <tr>
+              <td>{{ m.username }}</td>
+              <td>{{ m.display_name }}</td>
+              <td>{{ (m.speciality or '-')|replace('_', ' ')|title }}</td>
+              <td>{{ m.team_name or '-' }}</td>
+              <td>
+                <button
+                  class="btn btn-outline edit-manager-btn"
+                  type="button"
+                  data-username="{{ m.username }}"
+                  data-display-name="{{ m.display_name }}"
+                  data-speciality="{{ m.speciality or 'ALL_ROUNDER' }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Edit</button>
+                <button
+                  class="btn btn-danger delete-manager-btn"
+                  type="button"
+                  data-username="{{ m.username }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Setup: Teams</h3>
+      <div class="table-wrap">
+        <table id="setupTeamTable">
+          <thead>
+            <tr><th>Team</th><th>Manager</th><th>Manager Speciality</th><th>Manager Tier</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for t in state.teams %}
+            <tr>
+              <td>{{ t.name }}</td>
+              <td>{{ t.manager_name }}</td>
+              <td>{{ (t.manager_speciality or '-')|replace('_', ' ')|title }}</td>
+              <td>{{ t.manager_tier|title }}</td>
+              <td>
+                <button
+                  class="btn btn-outline edit-team-btn"
+                  type="button"
+                  data-team-id="{{ t.id }}"
+                  data-team-name="{{ t.name }}"
+                  data-manager-tier="{{ t.manager_tier }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Edit</button>
+                <button
+                  class="btn btn-danger delete-team-btn"
+                  type="button"
+                  data-team-id="{{ t.id }}"
+                  data-team-name="{{ t.name }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Public Budget Board</h3>
+      <div class="table-wrap">
+        <table id="teamTable">
+          <thead>
+            <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+          </thead>
+          <tbody>
+          {% for t in state.public_budget_board %}
+            <tr>
+              <td>{{ t.team_name }}</td>
+              <td>{{ t.purse_remaining }}</td>
+              <td>{{ t.credits_remaining }}</td>
+              <td>{{ t.active_count }}</td>
+              <td>{{ t.bench_count }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Players</h3>
+      <div class="table-wrap">
+        <table id="playerTable">
+          <thead>
+            <tr><th>Name</th><th>Tier</th><th>Speciality</th><th>Base</th><th>Status</th><th>Current Bid</th><th>Sold To</th><th>Sold Price</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for p in state.players %}
+            <tr>
+              <td>{{ p.name }}</td>
+              <td>{{ p.tier }}</td>
+              <td>{{ (p.speciality or '-')|replace('_', ' ')|title }}</td>
+              <td>{{ p.base_price }}</td>
+              <td>{{ p.status }}</td>
+              <td>{{ p.current_bid }}</td>
+              <td>{{ p.sold_to_team_name or '-' }}</td>
+              <td>{{ p.sold_price }}</td>
+              <td>
+                <button
+                  class="btn btn-outline edit-player-btn"
+                  type="button"
+                  data-player-id="{{ p.id }}"
+                  data-player-name="{{ p.name }}"
+                  data-player-tier="{{ p.tier }}"
+                  data-player-speciality="{{ p.speciality or 'ALL_ROUNDER' }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Edit</button>
+                <button
+                  class="btn btn-danger delete-player-btn"
+                  type="button"
+                  data-player-id="{{ p.id }}"
+                  data-player-name="{{ p.name }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="adminTab-fantasy" class="admin-tab-panel" {% if active_tab != 'fantasy' %}hidden{% endif %}>
+    <div class="card">
+      <h3>Start New Fantasy Season</h3>
+      <form method="post" action="{{ url_for('fantasy.fantasy_admin_create_season') }}" class="grid-2">
+        <select name="published_slug" required>
+          <option value="">Select published auction season</option>
+          {% for published in published_sessions %}
+          <option value="{{ published.slug }}">{{ published.name }} ({{ published.slug }})</option>
+          {% endfor %}
+        </select>
+        <input name="season_name" placeholder="Optional display name">
+        <button class="btn" type="submit">Create Fantasy Season</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Fantasy Seasons</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Season</th><th>Slug</th><th>Entries</th><th>Submissions</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+          {% for season in seasons %}
+            <tr>
+              <td>{{ season.name }}</td>
+              <td>{{ season.slug }}</td>
+              <td>{{ season.entry_count }}</td>
+              <td>{{ 'Open' if season.submissions_open else 'Closed' }}</td>
+              <td>
+                <a class="btn btn-outline" href="{{ url_for('unified_admin.dashboard', tab='fantasy', season=season.slug) }}">Manage</a>
+                <form method="post" action="{{ url_for('fantasy.fantasy_admin_toggle_submissions') }}" style="display:inline-block;">
+                  <input type="hidden" name="season_slug" value="{{ season.slug }}">
+                  <input type="hidden" name="desired_state" value="{{ 'closed' if season.submissions_open else 'open' }}">
+                  <button class="btn {% if season.submissions_open %}btn-danger{% else %}btn-secondary{% endif %}" type="submit">
+                    {% if season.submissions_open %}Close Submissions{% else %}Open Submissions{% endif %}
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not seasons %}
+            <tr><td colspan="5">No fantasy seasons created yet.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if selected_season %}
+    <div class="card">
+      <h3>Manage Entries: {{ selected_season.name }}</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Entrant</th><th>Credits</th><th>Picks</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for entry in entries %}
+            <tr>
+              <td>{{ entry.entrant_name }}</td>
+              <td>{{ entry.total_credits }}</td>
+              <td>
+                {% for pick in entry.picks %}
+                  {{ pick.player_name }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </td>
+              <td>
+                <form method="post" action="{{ url_for('fantasy.fantasy_admin_delete_entry') }}">
+                  <input type="hidden" name="season_slug" value="{{ selected_season.slug }}">
+                  <input type="hidden" name="entry_id" value="{{ entry.id }}">
+                  <button class="btn btn-danger" type="submit">Delete Entry</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not entries %}
+            <tr><td colspan="4">No entries submitted yet for this season.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

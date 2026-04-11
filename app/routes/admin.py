@@ -21,8 +21,37 @@ from app.rules import (
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/auction/admin")
+unified_admin_bp = Blueprint("unified_admin", __name__)
 
 SPECIALITIES = {"ALL_ROUNDER", "BATTER", "BOWLER"}
+
+
+def _build_unified_admin_context():
+    auction_service = current_app.extensions["auction_service"]
+    fantasy_service = current_app.extensions["fantasy_service"]
+
+    seasons = fantasy_service.list_fantasy_seasons()
+    published_sessions = fantasy_service.list_published_sessions()
+    season_slug = (request.args.get("season") or "").strip().lower()
+    active_tab = (request.args.get("tab") or "auction").strip().lower()
+    if active_tab not in {"auction", "fantasy"}:
+        active_tab = "auction"
+
+    selected = None
+    entries = []
+    if season_slug:
+        selected = fantasy_service.get_season(season_slug)
+        if selected:
+            entries = fantasy_service.get_entries_for_season(season_slug)
+
+    return {
+        "state": auction_service.get_state(),
+        "active_tab": active_tab,
+        "seasons": seasons,
+        "published_sessions": published_sessions,
+        "selected_season": selected,
+        "entries": entries,
+    }
 
 
 def _ensure_setup_phase():
@@ -60,7 +89,7 @@ def _resolve_snapshot_file(filename: str) -> Path:
 
 @admin_bp.get("/login")
 def admin_login_page():
-    return render_template("admin/login.html")
+    return redirect(url_for("unified_admin.admin_login_page"))
 
 
 @admin_bp.post("/login")
@@ -69,22 +98,52 @@ def admin_login():
     user = auth_service.login(request.form.get("username", ""), request.form.get("password", ""))
     if not user or user["role"] != ROLE_ADMIN:
         flash("Invalid admin credentials", "error")
-        return redirect(url_for("admin.admin_login_page"))
+        return redirect(url_for("unified_admin.admin_login_page"))
     session["user"] = user
-    return redirect(url_for("admin.dashboard"))
+    return redirect(url_for("unified_admin.dashboard", tab="auction"))
 
 
 @admin_bp.get("/logout")
 def admin_logout():
-    session.clear()
-    return redirect(url_for("viewer.live_view"))
+    return redirect(url_for("unified_admin.admin_logout"))
 
 
 @admin_bp.get("/dashboard")
 @login_required(role=ROLE_ADMIN)
 def dashboard():
-    auction_service = current_app.extensions["auction_service"]
-    return render_template("admin/dashboard.html", state=auction_service.get_state())
+    return redirect(url_for("unified_admin.dashboard", tab="auction"))
+
+
+@unified_admin_bp.get("/admin/login", endpoint="admin_login_page")
+def admin_login_page_unified():
+    return render_template("admin/unified_login.html")
+
+
+@unified_admin_bp.post("/admin/login", endpoint="admin_login")
+def admin_login_unified():
+    auth_service = current_app.extensions["auth_service"]
+    user = auth_service.login(request.form.get("username", ""), request.form.get("password", ""))
+    if not user or user["role"] != ROLE_ADMIN:
+        flash("Invalid admin credentials", "error")
+        return redirect(url_for("unified_admin.admin_login_page"))
+    session["user"] = user
+    return redirect(url_for("unified_admin.dashboard", tab="auction"))
+
+
+@unified_admin_bp.get("/admin/logout", endpoint="admin_logout")
+def admin_logout_unified():
+    session.clear()
+    return redirect(url_for("viewer.live_view"))
+
+
+@unified_admin_bp.get("/admin", endpoint="dashboard")
+def dashboard_unified():
+    user = session.get("user")
+    if not user:
+        return redirect(url_for("unified_admin.admin_login_page"))
+    if user.get("role") != ROLE_ADMIN:
+        return redirect(url_for("viewer.home"))
+    return render_template("admin/unified_dashboard.html", **_build_unified_admin_context())
 
 
 @admin_bp.post("/create-manager")

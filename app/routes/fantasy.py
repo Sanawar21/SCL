@@ -103,7 +103,7 @@ def fantasy_submit_api(season_slug):
 
 @fantasy_bp.get("/admin/login")
 def fantasy_admin_login_page():
-    return render_template("fantasy/admin_login.html")
+    return redirect(url_for("unified_admin.admin_login_page"))
 
 
 @fantasy_bp.post("/admin/login")
@@ -112,9 +112,9 @@ def fantasy_admin_login():
     user = auth_service.login(request.form.get("username", ""), request.form.get("password", ""))
     if not user or user.get("role") != ROLE_ADMIN:
         flash("Invalid admin credentials", "error")
-        return redirect(url_for("fantasy.fantasy_admin_login_page"))
+        return redirect(url_for("unified_admin.admin_login_page"))
     session["user"] = user
-    return redirect(url_for("fantasy.fantasy_admin_dashboard"))
+    return redirect(url_for("unified_admin.dashboard", tab="fantasy"))
 
 
 @fantasy_bp.get("/admin/logout")
@@ -126,25 +126,10 @@ def fantasy_admin_logout():
 @fantasy_bp.get("/admin/dashboard")
 @login_required(role=ROLE_ADMIN)
 def fantasy_admin_dashboard():
-    fantasy_service = _fantasy_service()
-    seasons = fantasy_service.list_fantasy_seasons()
-    published_sessions = fantasy_service.list_published_sessions()
-
     season_slug = (request.args.get("season") or "").strip().lower()
-    selected = None
-    entries = []
     if season_slug:
-        selected = fantasy_service.get_season(season_slug)
-        if selected:
-            entries = fantasy_service.get_entries_for_season(season_slug)
-
-    return render_template(
-        "fantasy/admin_dashboard.html",
-        seasons=seasons,
-        published_sessions=published_sessions,
-        selected_season=selected,
-        entries=entries,
-    )
+        return redirect(url_for("unified_admin.dashboard", tab="fantasy", season=season_slug))
+    return redirect(url_for("unified_admin.dashboard", tab="fantasy"))
 
 
 @fantasy_bp.post("/admin/create-season")
@@ -157,10 +142,10 @@ def fantasy_admin_create_season():
     try:
         season = fantasy_service.create_fantasy_season(published_slug=published_slug, name=season_name)
         flash("Fantasy season created", "success")
-        return redirect(url_for("fantasy.fantasy_admin_dashboard", season=season["slug"]))
+        return redirect(url_for("unified_admin.dashboard", tab="fantasy", season=season["slug"]))
     except Exception as exc:  # noqa: BLE001
         flash(str(exc), "error")
-        return redirect(url_for("fantasy.fantasy_admin_dashboard"))
+        return redirect(url_for("unified_admin.dashboard", tab="fantasy"))
 
 
 @fantasy_bp.post("/admin/toggle-submissions")
@@ -177,7 +162,7 @@ def fantasy_admin_toggle_submissions():
     except Exception as exc:  # noqa: BLE001
         flash(str(exc), "error")
 
-    return redirect(url_for("fantasy.fantasy_admin_dashboard", season=season_slug))
+    return redirect(url_for("unified_admin.dashboard", tab="fantasy", season=season_slug))
 
 
 @fantasy_bp.post("/admin/delete-entry")
@@ -193,4 +178,4 @@ def fantasy_admin_delete_entry():
     except Exception as exc:  # noqa: BLE001
         flash(str(exc), "error")
 
-    return redirect(url_for("fantasy.fantasy_admin_dashboard", season=season_slug))
+    return redirect(url_for("unified_admin.dashboard", tab="fantasy", season=season_slug))

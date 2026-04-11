@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from app.rules import (
     PHASE_COMPLETE,
     PHASE_SETUP,
     ROLE_ADMIN,
+    ROLE_MANAGER,
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/auction/admin")
@@ -36,24 +38,24 @@ def _normalize_speciality(raw_value: str) -> str:
     return value
 
 
-def _session_dir() -> Path:
-    return resolve_named_directory(current_app, "SESSION_DIR", "sessions")
-
-
 def _published_session_dir() -> Path:
     return resolve_named_directory(current_app, "PUBLISHED_SESSION_DIR", "published_sessions")
+
+
+def _snapshot_dir() -> Path:
+    return resolve_named_directory(current_app, "SNAPSHOT_DIR", "data/auction_snapshots")
 
 
 def _slugify_session_name(name: str) -> str:
     return slugify_session_name(name)
 
 
-def _resolve_session_file(filename: str) -> Path:
-    return resolve_session_file(_session_dir(), filename)
-
-
 def _resolve_published_file(filename: str) -> Path:
     return resolve_session_file(_published_session_dir(), filename)
+
+
+def _resolve_snapshot_file(filename: str) -> Path:
+    return resolve_session_file(_snapshot_dir(), filename)
 
 
 @admin_bp.get("/login")
@@ -89,19 +91,59 @@ def dashboard():
 @login_required(role=ROLE_ADMIN)
 def create_manager():
     auth_service = current_app.extensions["auth_service"]
+    auth_created_for = None
     try:
+        _ensure_setup_phase()
+        username = request.form.get("username", "").strip()
+        display_name = request.form.get("display_name", "").strip()
+        team_name = request.form.get("team_name", "").strip()
+        manager_tier = request.form.get("manager_tier", "silver").strip().lower()
         speciality = _normalize_speciality(request.form.get("speciality", ""))
-        result = auth_service.create_manager(
-            username=request.form.get("username", "").strip(),
-            display_name=request.form.get("display_name", "").strip(),
-            team_name=request.form.get("team_name", "").strip(),
-            manager_tier=request.form.get("manager_tier", "silver").strip().lower(),
-            speciality=speciality,
-        )
+        credentials_result = auth_service.create_manager_credentials(username=username, display_name=display_name)
+        auth_created_for = username
+
+        team_id = secrets.token_hex(8)
+        auction_store = current_app.extensions["auction_store"]
+        with auction_store.write() as db:
+            auction_users = db.table("users")
+            teams = db.table("teams")
+
+            if auction_users.get(lambda u: u.get("username") == username):
+                raise ValueError("Username already exists")
+
+            auction_users.insert(
+                {
+                    "username": username,
+                    "role": ROLE_MANAGER,
+                    "display_name": display_name,
+                    "speciality": speciality,
+                    "team_id": team_id,
+                }
+            )
+
+            teams.insert(
+                {
+                    "id": team_id,
+                    "name": team_name,
+                    "manager_username": username,
+                    "manager_tier": manager_tier,
+                    "players": [],
+                    "bench": [],
+                    "spent": 0,
+                    "purse_remaining": None,
+                    "credits_remaining": None,
+                }
+            )
+
         current_app.extensions["auction_service"].setup_team_budgets()
         socketio.emit("state_update", current_app.extensions["auction_service"].get_state())
-        return jsonify({"ok": True, **result})
+        return jsonify({"ok": True, "team_id": team_id, **credentials_result})
     except Exception as exc:  # noqa: BLE001
+        if auth_created_for:
+            try:
+                auth_service.delete_user(auth_created_for)
+            except Exception:  # noqa: BLE001
+                pass
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
@@ -112,7 +154,7 @@ def add_player():
     name = request.form.get("name", "").strip()
     speciality = request.form.get("speciality", "")
     auction_service = current_app.extensions["auction_service"]
-    store = current_app.extensions["store"]
+    store = current_app.extensions["auction_store"]
 
     from app.rules import TIER_BASE_PRICE, TIER_CREDIT_COST
 
@@ -166,7 +208,7 @@ def update_player():
         _ensure_setup_phase()
         normalized_speciality = _normalize_speciality(speciality)
         Player = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -203,7 +245,7 @@ def delete_player():
         Player = Query()
         Bid = Query()
         Team = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -254,9 +296,11 @@ def update_manager():
     try:
         _ensure_setup_phase()
         normalized_speciality = _normalize_speciality(speciality)
+        auth_service = current_app.extensions["auth_service"]
+        auth_service.assert_username_available(username, except_username=manager_username)
         User = Query()
         Team = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -285,6 +329,8 @@ def update_manager():
                 Team.manager_username == manager_username,
             )
 
+        auth_service.update_user(current_username=manager_username, new_username=username, display_name=display_name)
+
         socketio.emit("state_update", auction_service.get_state())
         return jsonify({"ok": True})
     except Exception as exc:  # noqa: BLE001
@@ -303,7 +349,7 @@ def delete_manager():
         User = Query()
         Team = Query()
         Player = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -336,6 +382,9 @@ def delete_manager():
 
             users.remove(User.username == manager_username)
 
+        auth_service = current_app.extensions["auth_service"]
+        auth_service.delete_user(manager_username)
+
         socketio.emit("state_update", auction_service.get_state())
         return jsonify({"ok": True})
     except Exception as exc:  # noqa: BLE001
@@ -359,7 +408,7 @@ def update_team():
     try:
         _ensure_setup_phase()
         Team = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -395,7 +444,7 @@ def delete_team():
         User = Query()
         Player = Query()
         Bid = Query()
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
 
         with store.write() as db:
@@ -423,8 +472,15 @@ def delete_team():
                 )
 
             bids.remove(Bid.team_id == team_id)
+            linked_users = users.search(User.team_id == team_id)
             users.remove(User.team_id == team_id)
             teams.remove(Team.id == team_id)
+
+        auth_service = current_app.extensions["auth_service"]
+        for linked_user in linked_users:
+            username = (linked_user or {}).get("username")
+            if username:
+                auth_service.delete_user(username)
 
         socketio.emit("state_update", auction_service.get_state())
         return jsonify({"ok": True})
@@ -532,21 +588,21 @@ def complete_draft():
 @admin_bp.get("/session/list")
 @login_required(role=ROLE_ADMIN)
 def list_sessions():
-    session_files = sorted(
-        _session_dir().glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    sessions = []
-    for session_file in session_files:
-        saved_at = datetime.utcfromtimestamp(session_file.stat().st_mtime).isoformat()
-        sessions.append(
+    snapshots = []
+    for file_path in _snapshot_dir().glob("*.json"):
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        snapshots.append(
             {
-                "file": session_file.name,
-                "label": session_file.stem,
-                "saved_at": saved_at,
+                "file": file_path.name,
+                "label": payload.get("session_name") or file_path.stem,
+                "saved_at": payload.get("saved_at") or datetime.utcfromtimestamp(file_path.stat().st_mtime).isoformat(),
             }
         )
+
+    sessions = sorted(snapshots, key=lambda item: item.get("saved_at") or "", reverse=True)
     return jsonify({"ok": True, "sessions": sessions})
 
 
@@ -556,19 +612,27 @@ def save_session():
     requested_name = request.form.get("session_name", "").strip()
     overwrite = request.form.get("overwrite", "").strip().lower() in {"1", "true", "yes", "on"}
     slug = _slugify_session_name(requested_name)
-    file_path = _resolve_session_file(f"{slug}.json")
-    existed = file_path.exists()
-    if existed and not overwrite:
-        return jsonify({"ok": False, "error": "A session with this name already exists"}), 400
-
-    store = current_app.extensions["store"]
+    auction_store = current_app.extensions["auction_store"]
     payload = {
         "session_name": requested_name or slug,
         "saved_at": datetime.utcnow().isoformat(),
-        "tables": store.export_tables(),
+        "tables": auction_store.export_tables(),
     }
-    file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return jsonify({"ok": True, "file": file_path.name, "overwritten": existed})
+    snapshot_payload = {
+        "slug": slug,
+        "file": f"{slug}.json",
+        "session_name": payload["session_name"],
+        "saved_at": payload["saved_at"],
+        "tables": payload["tables"],
+    }
+
+    snapshot_file = _resolve_snapshot_file(snapshot_payload["file"])
+    existed = snapshot_file.exists()
+    if existed and not overwrite:
+        return jsonify({"ok": False, "error": "A session with this name already exists"}), 400
+
+    snapshot_file.write_text(json.dumps(snapshot_payload, indent=2), encoding="utf-8")
+    return jsonify({"ok": True, "file": snapshot_payload["file"], "overwritten": existed})
 
 
 @admin_bp.post("/publish-session")
@@ -590,7 +654,7 @@ def publish_session():
     if state.get("phase") != PHASE_COMPLETE:
         return jsonify({"ok": False, "error": "Publishing is only allowed after the auction is complete"}), 400
 
-    store = current_app.extensions["store"]
+    store = current_app.extensions["auction_store"]
     payload = {
         "session_name": requested_name or slug,
         "session_link_suffix": slug,
@@ -599,6 +663,53 @@ def publish_session():
         "tables": store.export_tables(),
     }
     file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    season_store_existed = season_store_manager.has_season(slug)
+    season_store = season_store_manager.get_store(slug, create=True)
+
+    season_tables_payload = {
+        table_name: rows
+        for table_name, rows in (payload["tables"] or {}).items()
+        if table_name != "bids"
+    }
+
+    preserved_tables = {}
+    preserved_meta = {}
+    if season_store_existed:
+        existing_tables = season_store.export_tables()
+        for table_name, rows in existing_tables.items():
+            if table_name in {"meta", "teams", "users", "players", "bids"}:
+                continue
+            preserved_tables[table_name] = rows
+        season_meta_rows = existing_tables.get("season_meta") or []
+        if season_meta_rows:
+            preserved_meta = dict(season_meta_rows[0])
+
+    season_store.import_tables(season_tables_payload)
+
+    with season_store.write() as db:
+        for table_name, rows in preserved_tables.items():
+            table = db.table(table_name)
+            if rows:
+                table.insert_multiple(rows)
+
+        season_meta = {
+            "slug": slug,
+            "name": requested_name or slug,
+            "published": True,
+            "published_file": file_path.name,
+            "published_at": payload["saved_at"],
+            "created_at": preserved_meta.get("created_at") or datetime.utcnow().isoformat(),
+            "submissions_open": bool(preserved_meta.get("submissions_open", False)),
+        }
+
+        meta_table = db.table("season_meta")
+        if meta_table.get(doc_id=1):
+            meta_table.update(season_meta, doc_ids=[1])
+        else:
+            meta_table.insert(season_meta)
+
     return jsonify(
         {
             "ok": True,
@@ -617,16 +728,17 @@ def load_session():
         return jsonify({"ok": False, "error": "Session file is required"}), 400
 
     try:
-        file_path = _resolve_session_file(filename)
-        if not file_path.exists():
+        snapshot_file = _resolve_snapshot_file(filename)
+        if not snapshot_file.exists():
             return jsonify({"ok": False, "error": "Session not found"}), 404
 
-        payload = json.loads(file_path.read_text(encoding="utf-8"))
+        payload = json.loads(snapshot_file.read_text(encoding="utf-8"))
+
         tables = payload.get("tables")
         if not isinstance(tables, dict):
             return jsonify({"ok": False, "error": "Invalid session file format"}), 400
 
-        store = current_app.extensions["store"]
+        store = current_app.extensions["auction_store"]
         auth_service = current_app.extensions["auth_service"]
         auction_service = current_app.extensions["auction_service"]
 
@@ -635,7 +747,8 @@ def load_session():
         auction_service.bootstrap_defaults()
 
         socketio.emit("state_update", auction_service.get_state())
-        return jsonify({"ok": True, "loaded": filename})
+        loaded_file = payload.get("file") or snapshot_file.name
+        return jsonify({"ok": True, "loaded": loaded_file})
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:  # noqa: BLE001

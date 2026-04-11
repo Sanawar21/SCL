@@ -1,4 +1,6 @@
 {
+  "slug": "season-1-final-draft",
+  "file": "season-1-final-draft.json",
   "session_name": "season-1-final-draft",
   "saved_at": "2026-04-08T16:37:24.278809",
   "tables": {
@@ -600,7 +602,6 @@
         "current_bidder_team_id": "dedfeeda5fe012df",
         "nominated_phase_a": true,
         "speciality": "BOWLER"
-
       },
       {
         "id": "a2b317262b1f608d",
@@ -842,5 +843,6 @@
         "speciality": "BATTER"
       }
     ]
-  }
+  },
+  "legacy_source": "d:\\projects\\SCL\\sessions\\season-1-final-draft.json"
 }

@@ -188,7 +188,7 @@ def fantasy_admin_delete_entry():
     season_slug = request.form.get("season_slug", "")
 
     try:
-        fantasy_service.delete_entry(entry_id)
+        fantasy_service.delete_entry(season_slug, entry_id)
         flash("Fantasy entry deleted", "success")
     except Exception as exc:  # noqa: BLE001
         flash(str(exc), "error")

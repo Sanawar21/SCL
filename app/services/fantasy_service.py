@@ -11,9 +11,10 @@ from app.session_files import resolve_session_file
 
 
 class FantasyService:
-    def __init__(self, store, published_dir: str):
-        self.store = store
+    def __init__(self, global_store, published_dir: str, season_store_manager):
+        self.global_store = global_store
         self.published_dir = Path(published_dir)
+        self.season_store_manager = season_store_manager
 
     def _load_published_payload(self, slug: str):
         safe_slug = (slug or "").strip().lower()
@@ -27,82 +28,215 @@ class FantasyService:
             raise ValueError("Published season is invalid")
         return payload
 
-    def list_published_sessions(self):
-        sessions = []
-        if not self.published_dir.exists():
-            return sessions
+    def _ensure_season_store(self, slug: str):
+        safe_slug = (slug or "").strip().lower()
+        if self.season_store_manager.has_season(safe_slug):
+            return self.season_store_manager.get_store(safe_slug, create=False)
 
-        for file_path in sorted(self.published_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-            try:
-                payload = json.loads(file_path.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
-                continue
-            sessions.append(
-                {
-                    "slug": file_path.stem,
-                    "name": payload.get("session_name") or file_path.stem,
+        payload = self._load_published_payload(safe_slug)
+        store = self.season_store_manager.get_store(safe_slug, create=True)
+        tables_payload = {
+            table_name: rows
+            for table_name, rows in (payload.get("tables") or {}).items()
+            if table_name != "bids"
+        }
+        store.import_tables(tables_payload)
+
+        with store.write() as db:
+            meta_table = db.table("season_meta")
+            meta_payload = {
+                "slug": safe_slug,
+                "name": payload.get("session_name") or safe_slug,
+                "published": bool(payload.get("published", True)),
+                "published_file": f"{safe_slug}.json",
+                "published_at": payload.get("saved_at") or datetime.utcnow().isoformat(),
+                "created_at": datetime.utcnow().isoformat(),
+                "submissions_open": False,
+            }
+            if meta_table.get(doc_id=1):
+                meta_table.update(meta_payload, doc_ids=[1])
+            else:
+                meta_table.insert(meta_payload)
+
+        return store
+
+    def _get_store_if_exists(self, slug: str):
+        safe_slug = (slug or "").strip().lower()
+        if not self.season_store_manager.has_season(safe_slug):
+            return None
+        return self.season_store_manager.get_store(safe_slug, create=False)
+
+    def _load_season_tables(self, slug: str):
+        store = self._get_store_if_exists(slug)
+        if store:
+            tables = store.export_tables()
+            if isinstance(tables, dict) and tables.get("players") and tables.get("teams"):
+                return tables
+
+        payload = self._load_published_payload(slug)
+        return payload.get("tables") or {}
+
+    def _get_season_meta(self, slug: str):
+        store = self._get_store_if_exists(slug)
+        if not store:
+            return None
+        with store.read() as db:
+            return db.table("season_meta").get(doc_id=1)
+
+    def _get_enabled_season_store(self, slug: str):
+        safe_slug = (slug or "").strip().lower()
+        store = self._get_store_if_exists(safe_slug)
+        if not store:
+            raise ValueError("Fantasy season not found")
+
+        return store
+
+    def list_published_sessions(self):
+        sessions_by_slug = {}
+
+        for season_slug in self.season_store_manager.list_slugs():
+            meta = self._get_season_meta(season_slug) or {}
+            sessions_by_slug[season_slug] = {
+                "slug": season_slug,
+                "name": meta.get("name") or season_slug,
+                "published_at": meta.get("published_at"),
+            }
+
+        if self.published_dir.exists():
+            for file_path in sorted(self.published_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                slug = file_path.stem
+                if slug in sessions_by_slug:
+                    continue
+                try:
+                    payload = json.loads(file_path.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    continue
+                sessions_by_slug[slug] = {
+                    "slug": slug,
+                    "name": payload.get("session_name") or slug,
                     "published_at": payload.get("saved_at"),
                 }
-            )
+
+        sessions = list(sessions_by_slug.values())
+        sessions.sort(key=lambda item: item.get("published_at") or "", reverse=True)
         return sessions
 
     def list_fantasy_seasons(self):
-        with self.store.read() as db:
-            seasons = sorted(
-                db.table("fantasy_seasons").all(),
-                key=lambda item: item.get("created_at") or "",
-                reverse=True,
-            )
-            entries = db.table("fantasy_entries").all()
+        seasons = []
+        for season_slug in self.season_store_manager.list_slugs():
+            store = self._get_store_if_exists(season_slug)
+            if not store:
+                continue
 
-        entry_counts = Counter((entry.get("season_slug") or "") for entry in entries)
-        for season in seasons:
-            season["entry_count"] = entry_counts.get(season.get("slug"), 0)
+            with store.read() as db:
+                meta = db.table("season_meta").get(doc_id=1) or {}
+                entry_count = len(db.table("fantasy_entries"))
+
+            seasons.append(
+                {
+                    "id": meta.get("slug") or season_slug,
+                    "slug": season_slug,
+                    "name": meta.get("name") or season_slug,
+                    "published_slug": season_slug,
+                    "submissions_open": bool(meta.get("submissions_open", False)),
+                    "created_at": meta.get("created_at") or "",
+                    "entry_count": entry_count,
+                }
+            )
+
+        seasons.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return seasons
 
     def get_season(self, slug: str):
         safe_slug = (slug or "").strip().lower()
-        with self.store.read() as db:
-            Season = Query()
-            return db.table("fantasy_seasons").get(Season.slug == safe_slug)
+        store = self._get_store_if_exists(safe_slug)
+        if not store:
+            return None
+
+        with store.read() as db:
+            meta = db.table("season_meta").get(doc_id=1) or {}
+
+        with store.read() as db:
+            entry_count = len(db.table("fantasy_entries"))
+
+        return {
+            "id": meta.get("slug") or safe_slug,
+            "slug": safe_slug,
+            "name": meta.get("name") or safe_slug,
+            "published_slug": safe_slug,
+            "submissions_open": bool(meta.get("submissions_open", False)),
+            "created_at": meta.get("created_at") or "",
+            "entry_count": entry_count,
+        }
 
     def create_fantasy_season(self, published_slug: str, name: str = ""):
-        payload = self._load_published_payload(published_slug)
-        slug = (published_slug or "").strip().lower()
-        display_name = (name or "").strip() or payload.get("session_name") or slug
+        safe_slug = (published_slug or "").strip().lower()
+        if not safe_slug:
+            raise ValueError("Published season slug is required")
 
-        with self.store.write() as db:
-            seasons = db.table("fantasy_seasons")
-            Season = Query()
-            if seasons.get(Season.slug == slug):
-                raise ValueError("Fantasy season already exists")
+        store = self._ensure_season_store(safe_slug)
+        published_payload = None
+        display_name = (name or "").strip()
 
-            season = {
-                "id": secrets.token_hex(8),
-                "slug": slug,
-                "name": display_name,
-                "published_slug": slug,
+        if not display_name:
+            try:
+                published_payload = self._load_published_payload(safe_slug)
+            except Exception:  # noqa: BLE001
+                published_payload = None
+
+        with store.write() as db:
+            meta_table = db.table("season_meta")
+            existing_meta = meta_table.get(doc_id=1) or {}
+
+            final_name = (
+                display_name
+                or existing_meta.get("name")
+                or (published_payload or {}).get("session_name")
+                or safe_slug
+            )
+
+            season_meta = {
+                "slug": safe_slug,
+                "name": final_name,
+                "published": True,
+                "published_file": existing_meta.get("published_file") or f"{safe_slug}.json",
+                "published_at": existing_meta.get("published_at") or (published_payload or {}).get("saved_at") or datetime.utcnow().isoformat(),
+                "created_at": existing_meta.get("created_at") or datetime.utcnow().isoformat(),
                 "submissions_open": True,
-                "created_at": datetime.utcnow().isoformat(),
             }
-            seasons.insert(season)
-            return season
+
+            if meta_table.get(doc_id=1):
+                meta_table.update(season_meta, doc_ids=[1])
+            else:
+                meta_table.insert(season_meta)
+
+        return {
+            "id": safe_slug,
+            "slug": safe_slug,
+            "name": final_name,
+            "published_slug": safe_slug,
+            "submissions_open": True,
+            "created_at": season_meta["created_at"],
+            "entry_count": 0,
+        }
 
     def set_submissions_open(self, season_slug: str, is_open: bool):
-        safe_slug = (season_slug or "").strip().lower()
-        with self.store.write() as db:
-            Season = Query()
-            seasons = db.table("fantasy_seasons")
-            if not seasons.get(Season.slug == safe_slug):
-                raise ValueError("Fantasy season not found")
-            seasons.update({"submissions_open": bool(is_open)}, Season.slug == safe_slug)
+        store = self._get_enabled_season_store(season_slug)
 
-    def delete_entry(self, entry_id: str):
+        with store.write() as db:
+            meta_table = db.table("season_meta")
+            meta = meta_table.get(doc_id=1)
+            if not meta:
+                raise ValueError("Fantasy season not found")
+            meta_table.update({"submissions_open": bool(is_open)}, doc_ids=[1])
+
+    def delete_entry(self, season_slug: str, entry_id: str):
         safe_entry_id = (entry_id or "").strip()
         if not safe_entry_id:
             raise ValueError("Missing entry id")
 
-        with self.store.write() as db:
+        store = self._get_enabled_season_store(season_slug)
+        with store.write() as db:
             Entry = Query()
             entries = db.table("fantasy_entries")
             if not entries.get(Entry.id == safe_entry_id):
@@ -110,8 +244,7 @@ class FantasyService:
             entries.remove(Entry.id == safe_entry_id)
 
     def _season_players(self, season_slug: str):
-        payload = self._load_published_payload(season_slug)
-        tables = payload["tables"]
+        tables = self._load_season_tables(season_slug)
 
         users_by_username = {
             (user.get("username") or "").strip(): user
@@ -146,10 +279,7 @@ class FantasyService:
                 continue
 
             manager_user = users_by_username.get(manager_username, {})
-            manager_name = (
-                (manager_user.get("display_name") or "").strip()
-                or manager_username
-            )
+            manager_name = ((manager_user.get("display_name") or "").strip() or manager_username)
 
             manager_tier = (team.get("manager_tier") or "").strip().lower()
             manager_credits = TIER_CREDIT_COST.get(manager_tier, 0)
@@ -182,8 +312,7 @@ class FantasyService:
         return " ".join((value or "").strip().lower().split())
 
     def _eligible_lookup(self, season_slug: str):
-        payload = self._load_published_payload(season_slug)
-        tables = payload["tables"]
+        tables = self._load_season_tables(season_slug)
         lookup = {}
 
         for user in tables.get("users", []):
@@ -292,13 +421,11 @@ class FantasyService:
             "created_at": datetime.utcnow().isoformat(),
         }
 
-        with self.store.write() as db:
+        store = self._get_enabled_season_store(season_slug)
+        with store.write() as db:
             entries = db.table("fantasy_entries")
             Entry = Query()
-            existing = entries.get(
-                (Entry.season_slug == entry["season_slug"])
-                & (Entry.entrant_key == entry["entrant_key"])
-            )
+            existing = entries.get(Entry.entrant_key == entry["entrant_key"])
             if existing:
                 raise ValueError("You have already submitted a fantasy team for this season")
 
@@ -307,10 +434,9 @@ class FantasyService:
         return entry
 
     def get_entries_for_season(self, season_slug: str):
-        safe_slug = (season_slug or "").strip().lower()
-        with self.store.read() as db:
-            Entry = Query()
-            entries = db.table("fantasy_entries").search(Entry.season_slug == safe_slug)
+        store = self._get_enabled_season_store(season_slug)
+        with store.read() as db:
+            entries = db.table("fantasy_entries").all()
         return sorted(entries, key=lambda item: item.get("created_at") or "", reverse=True)
 
     def get_rankings(self, season_slug: str):
@@ -345,10 +471,7 @@ class FantasyService:
             team_name = players_by_id.get(player_id, {}).get("auction_team_name") or "Unassigned"
             team_scores[team_name] += count
 
-        team_rankings = [
-            {"team_name": team_name, "pick_points": points}
-            for team_name, points in team_scores.items()
-        ]
+        team_rankings = [{"team_name": team_name, "pick_points": points} for team_name, points in team_scores.items()]
         team_rankings.sort(key=lambda item: (-item["pick_points"], item["team_name"].lower()))
 
         return {

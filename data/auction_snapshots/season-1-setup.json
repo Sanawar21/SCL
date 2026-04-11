@@ -1,4 +1,6 @@
 {
+  "slug": "season-1-setup",
+  "file": "season-1-setup.json",
   "session_name": "season-1-setup",
   "saved_at": "2026-04-11T03:57:30.820283",
   "tables": {
@@ -294,5 +296,6 @@
         "speciality": "BATTER"
       }
     ]
-  }
+  },
+  "legacy_source": "d:\\projects\\SCL\\sessions\\season-1-setup.json"
 }

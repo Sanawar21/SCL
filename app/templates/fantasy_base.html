@@ -3,19 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SCL Auction</title>
+  <title>SCL Fantasy League</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">SCL Auction Dashboard</div>
+    <div class="brand">SCL Fantasy League</div>
     <nav>
-      <a href="{{ url_for('viewer.home') }}">Home</a>
-      <a href="{{ url_for('viewer.live_view') }}">Live</a>
-      <a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
-      <a href="{{ url_for('manager.login_page') }}">Manager</a>
-      <a href="{{ url_for('admin.admin_login_page') }}">Admin</a>
+      <a href="{{ url_for('fantasy.fantasy_home') }}">Home</a>
+      <a href="{{ url_for('fantasy.fantasy_points_system') }}">Points System</a>
+      <a href="{{ url_for('fantasy.fantasy_admin_login_page') }}">Admin</a>
     </nav>
   </header>
 

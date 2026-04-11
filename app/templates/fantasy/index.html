@@ -1,0 +1,29 @@
+{% extends 'fantasy_base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card hero">
+    <h1>Fantasy League</h1>
+    <p>Pick a fantasy season to view rankings and submit your team.</p>
+  </div>
+
+  <div class="card">
+    <div class="row-between">
+      <h2>Fantasy Seasons</h2>
+      <span class="badge">Public</span>
+    </div>
+    {% if seasons %}
+    <div class="stack-sm">
+      {% for season in seasons %}
+      <a class="btn btn-outline" href="{{ url_for('fantasy.fantasy_season', season_slug=season.slug) }}">
+        {{ season.name }}
+        ({{ season.entry_count }} entries)
+        {% if season.submissions_open %}- submissions open{% else %}- submissions closed{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p>No fantasy seasons are available yet.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

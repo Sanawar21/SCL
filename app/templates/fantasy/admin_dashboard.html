@@ -1,0 +1,93 @@
+{% extends 'fantasy_base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <div class="row-between">
+      <h2>Fantasy Admin Dashboard</h2>
+      <a class="btn btn-outline" href="{{ url_for('fantasy.fantasy_admin_logout') }}">Logout</a>
+    </div>
+
+    <h3>Start New Fantasy Season</h3>
+    <form method="post" action="{{ url_for('fantasy.fantasy_admin_create_season') }}" class="grid-2">
+      <select name="published_slug" required>
+        <option value="">Select published auction season</option>
+        {% for published in published_sessions %}
+        <option value="{{ published.slug }}">{{ published.name }} ({{ published.slug }})</option>
+        {% endfor %}
+      </select>
+      <input name="season_name" placeholder="Optional display name">
+      <button class="btn" type="submit">Create Fantasy Season</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Fantasy Seasons</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Season</th><th>Slug</th><th>Entries</th><th>Submissions</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+        {% for season in seasons %}
+          <tr>
+            <td>{{ season.name }}</td>
+            <td>{{ season.slug }}</td>
+            <td>{{ season.entry_count }}</td>
+            <td>{{ 'Open' if season.submissions_open else 'Closed' }}</td>
+            <td>
+              <a class="btn btn-outline" href="{{ url_for('fantasy.fantasy_admin_dashboard', season=season.slug) }}">Manage</a>
+              <form method="post" action="{{ url_for('fantasy.fantasy_admin_toggle_submissions') }}" style="display:inline-block;">
+                <input type="hidden" name="season_slug" value="{{ season.slug }}">
+                <input type="hidden" name="desired_state" value="{{ 'closed' if season.submissions_open else 'open' }}">
+                <button class="btn {% if season.submissions_open %}btn-danger{% else %}btn-secondary{% endif %}" type="submit">
+                  {% if season.submissions_open %}Close Submissions{% else %}Open Submissions{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        {% if not seasons %}
+          <tr><td colspan="5">No fantasy seasons created yet.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if selected_season %}
+  <div class="card">
+    <h3>Manage Entries: {{ selected_season.name }}</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Entrant</th><th>Credits</th><th>Picks</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ entry.entrant_name }}</td>
+            <td>{{ entry.total_credits }}</td>
+            <td>
+              {% for pick in entry.picks %}
+                {{ pick.player_name }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('fantasy.fantasy_admin_delete_entry') }}">
+                <input type="hidden" name="season_slug" value="{{ selected_season.slug }}">
+                <input type="hidden" name="entry_id" value="{{ entry.id }}">
+                <button class="btn btn-danger" type="submit">Delete Entry</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        {% if not entries %}
+          <tr><td colspan="4">No entries submitted yet for this season.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -134,6 +134,7 @@ th, td { border-bottom: 1px solid #e5eaef; padding: 8px; font-size: 14px; text-a
 .flash-wrap { padding: 0 12px; }
 .flash { margin-top: 8px; padding: 10px; border-radius: 8px; }
 .flash-error { background: #ffe3e6; color: #8e1d2c; }
+.flash-success { background: #dff7e9; color: #1b6d42; }
 
 .mono { font-family: Consolas, monospace; word-break: break-all; }
 
@@ -148,4 +149,18 @@ th, td { border-bottom: 1px solid #e5eaef; padding: 8px; font-size: 14px; text-a
   width: auto;
   margin: 0;
   padding: 0;
+}
+
+.fantasy-player-list {
+  display: grid;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #dce3e9;
+  border-radius: 8px;
+}
+
+.fantasy-pick-row {
+  align-items: flex-start;
 }

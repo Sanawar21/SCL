@@ -1,0 +1,111 @@
+{% extends 'fantasy_base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card hero">
+    <h1>Points System</h1>
+    <p>Fantasy points are calculated from ball-by-ball match CSV data using tier, role, and matchup multipliers.</p>
+  </div>
+
+  <div class="card">
+    <h3>Tier Multipliers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Tier</th><th>Value</th><th>Reward Multiplier</th><th>Penalty Multiplier</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>S</td><td>1</td><td>1.2</td><td>0.8</td></tr>
+          <tr><td>G</td><td>2</td><td>1.0</td><td>1.0</td></tr>
+          <tr><td>P</td><td>3</td><td>0.8</td><td>1.2</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Base Event Points</h3>
+    <div class="grid-2">
+      <div>
+        <h4>Batting</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Event</th><th>Points</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0 runs</td><td>-3</td></tr>
+              <tr><td>1 run</td><td>1</td></tr>
+              <tr><td>2 runs</td><td>2</td></tr>
+              <tr><td>3 runs</td><td>3</td></tr>
+              <tr><td>4 runs</td><td>5</td></tr>
+              <tr><td>6 runs</td><td>8</td></tr>
+              <tr><td>Out</td><td>-8</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h4>Bowling</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Event</th><th>Points</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0 runs</td><td>8</td></tr>
+              <tr><td>1 run</td><td>2</td></tr>
+              <tr><td>2 runs</td><td>0</td></tr>
+              <tr><td>3 runs</td><td>-2</td></tr>
+              <tr><td>4 runs</td><td>-4</td></tr>
+              <tr><td>6 runs</td><td>-6</td></tr>
+              <tr><td>Wicket</td><td>15</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Matchup Multiplier</h3>
+    <p>Based on absolute tier difference between batter and bowler:</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>|Tier Difference|</th><th>Multiplier</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0</td><td>1.0</td></tr>
+          <tr><td>1</td><td>1/1.5</td></tr>
+          <tr><td>2</td><td>1/2.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Special Ball Rules</h3>
+    <p>Wide ball:</p>
+    <p>Bowler gets -2 base penalty. If extra wides include boundary component, additional bowling penalties are added where applicable.</p>
+    <p>No ball:</p>
+    <p>Bowler gets -4 base penalty and boundary/run penalties can be added from runs off the bat.</p>
+    <p>Valid ball count:</p>
+    <p>Only valid balls increase bowler ball count. Batter ball count excludes wides.</p>
+  </div>
+
+  <div class="card">
+    <h3>Role Multipliers</h3>
+    <p>Positive batting points by a player with role BOWLER get 1.2x.</p>
+    <p>Positive bowling points by a player with role BATTER get 1.2x.</p>
+  </div>
+
+  <div class="card">
+    <h3>Final Score Formula</h3>
+    <p>Total points = batting points + bowling points</p>
+    <p>Total balls = balls faced + balls bowled</p>
+    <p>Divisor = max(total balls, 6)</p>
+    <p>PPB = total points / divisor</p>
+    <p>Final score = PPB x 12</p>
+  </div>
+</section>
+{% endblock %}

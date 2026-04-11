@@ -1,0 +1,96 @@
+{% extends 'fantasy_base.html' %}
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <div class="row-between">
+      <h2>{{ season.name }}</h2>
+      <span class="badge">{{ 'Open' if season.submissions_open else 'Closed' }}</span>
+    </div>
+    <p>Credits rule: Platinum = 3, Gold = 2, Silver = 1. Max total credits = 8.</p>
+    <div class="hero-actions">
+      {% if season.submissions_open %}
+      <a class="btn" href="{{ url_for('fantasy.fantasy_submit_page', season_slug=season.slug) }}">Submit Fantasy Team</a>
+      {% endif %}
+      <a class="btn btn-outline" href="{{ url_for('fantasy.fantasy_home') }}">Back to Fantasy Seasons</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Fantasy Team Ranking</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Rank</th><th>Entrant</th><th>Picks</th><th>Submitted</th><th>Pts</th></tr>
+        </thead>
+        <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ entry.entrant_name }}</td>
+            <td>
+              {% for pick in entry.picks %}
+                {{ pick.player_name }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </td>
+            <td>{{ format_submitted_at(entry.created_at) }}</td>
+            <td>{{ entry.get('pts') if entry.get('pts') is not none else '-' }}</td>
+          </tr>
+        {% endfor %}
+        {% if not entries %}
+          <tr><td colspan="5">No fantasy entries submitted yet.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Team Ranking</h3>
+    <p>Ranking is based on total player picks attributed to each auction team.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Rank</th><th>Auction Team</th><th>Pick Points</th><th>Pts</th></tr>
+        </thead>
+        <tbody>
+        {% for row in team_rankings %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ row.team_name }}</td>
+            <td>{{ row.pick_points }}</td>
+            <td>{{ row.get('pts') if row.get('pts') is not none else '-' }}</td>
+          </tr>
+        {% endfor %}
+        {% if not team_rankings %}
+          <tr><td colspan="4">No data yet.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Selection Ranking</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Rank</th><th>Name</th><th>Tier</th><th>Auction Team</th><th>Picks</th><th>Pts</th></tr>
+        </thead>
+        <tbody>
+        {% for row in player_rankings %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ row.player_name }}</td>
+            <td>{{ row.tier|title }}</td>
+            <td>{{ row.auction_team_name }}</td>
+            <td>{{ row.pick_count }}</td>
+            <td>{{ row.get('pts') if row.get('pts') is not none else '-' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</section>
+{% endblock %}

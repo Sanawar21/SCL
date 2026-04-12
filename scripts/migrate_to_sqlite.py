@@ -67,6 +67,7 @@ class Migrator:
         self.data_dir = data_dir
         self.db_path = db_path
         self.force = force
+        self._season_slug_to_auction_id: dict[str, str] = {}
 
     def migrate(self) -> None:
         if not self.data_dir.exists() or not self.data_dir.is_dir():
@@ -105,6 +106,8 @@ class Migrator:
                     manager_speciality_by_username,
                     final_draft_bids_by_slug,
                 )
+
+            self._migrate_auction_snapshots(conn, self._load_snapshot_docs())
 
             self._finalize_run(conn, run_id)
             conn.commit()
@@ -156,6 +159,22 @@ class Migrator:
                 bids_by_slug[season_slug] = bids
 
         return bids_by_slug
+
+    def _load_snapshot_docs(self) -> list[SourceDoc]:
+        docs: list[SourceDoc] = []
+        snapshots_dir = self.data_dir / "auction_snapshots"
+        if not snapshots_dir.exists():
+            return docs
+
+        for file_path in sorted(snapshots_dir.glob("*.json")):
+            rel_path = file_path.relative_to(self.data_dir).as_posix()
+            try:
+                payload = json.loads(file_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(payload, dict):
+                docs.append(SourceDoc(rel_path=rel_path, payload=payload))
+        return docs
 
     def _create_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
@@ -225,15 +244,73 @@ class Migrator:
             CREATE TABLE IF NOT EXISTS auctions (
                 id TEXT PRIMARY KEY,
                 season_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mode TEXT NOT NULL,
                 source_path TEXT NOT NULL,
                 status TEXT NOT NULL,
                 phase TEXT,
                 current_player_id TEXT,
+                started_at TEXT,
+                ended_at TEXT,
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 saved_at TEXT,
                 metadata_json TEXT,
                 FOREIGN KEY(season_id) REFERENCES seasons(id),
                 FOREIGN KEY(current_player_id) REFERENCES players(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS auction_players (
+                id TEXT PRIMARY KEY,
+                auction_id TEXT NOT NULL,
+                player_id TEXT NOT NULL,
+                nomination_order INTEGER,
+                entry_status TEXT NOT NULL,
+                opening_price INTEGER,
+                current_bid INTEGER NOT NULL DEFAULT 0,
+                sold_to_team_id TEXT,
+                sold_price INTEGER,
+                phase_sold TEXT,
+                added_at TEXT NOT NULL,
+                removed_at TEXT,
+                metadata_json TEXT,
+                UNIQUE(auction_id, player_id),
+                FOREIGN KEY(auction_id) REFERENCES auctions(id),
+                FOREIGN KEY(player_id) REFERENCES players(id),
+                FOREIGN KEY(sold_to_team_id) REFERENCES teams(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS auction_teams (
+                id TEXT PRIMARY KEY,
+                auction_id TEXT NOT NULL,
+                team_id TEXT NOT NULL,
+                manager_player_id TEXT,
+                purse_start INTEGER,
+                purse_remaining INTEGER,
+                credits_start INTEGER,
+                credits_remaining INTEGER,
+                entry_status TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                removed_at TEXT,
+                metadata_json TEXT,
+                UNIQUE(auction_id, team_id),
+                FOREIGN KEY(auction_id) REFERENCES auctions(id),
+                FOREIGN KEY(team_id) REFERENCES teams(id),
+                FOREIGN KEY(manager_player_id) REFERENCES players(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS auction_snapshots (
+                id TEXT PRIMARY KEY,
+                auction_id TEXT NOT NULL,
+                snapshot_name TEXT NOT NULL,
+                snapshot_type TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                restored_at TEXT,
+                state_json TEXT NOT NULL,
+                metadata_json TEXT,
+                UNIQUE(auction_id, source_path),
+                FOREIGN KEY(auction_id) REFERENCES auctions(id)
             );
 
             CREATE TABLE IF NOT EXISTS bids (
@@ -333,6 +410,9 @@ class Migrator:
             CREATE INDEX IF NOT EXISTS idx_bids_player ON bids(player_id);
             CREATE INDEX IF NOT EXISTS idx_fantasy_season ON fantasy_teams(season_id);
             CREATE INDEX IF NOT EXISTS idx_source_rows ON source_rows(run_id, source_path, source_table);
+            CREATE INDEX IF NOT EXISTS idx_auction_players_auction ON auction_players(auction_id, player_id);
+            CREATE INDEX IF NOT EXISTS idx_auction_teams_auction ON auction_teams(auction_id, team_id);
+            CREATE INDEX IF NOT EXISTS idx_auction_snapshots_auction ON auction_snapshots(auction_id, created_at);
             """
         )
 
@@ -572,27 +652,41 @@ class Migrator:
 
         conn.execute(
             """
-            INSERT INTO auctions (id, season_id, source_path, status, phase, current_player_id, created_at, saved_at, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO auctions (
+                id, season_id, name, mode, source_path, status, phase, current_player_id,
+                started_at, ended_at, created_at, updated_at, saved_at, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                mode=excluded.mode,
                 status=excluded.status,
                 phase=excluded.phase,
                 current_player_id=excluded.current_player_id,
                 saved_at=COALESCE(excluded.saved_at, auctions.saved_at),
+                updated_at=excluded.updated_at,
                 metadata_json=excluded.metadata_json
             """,
             (
                 auction_id,
                 season_id,
+                season_name,
+                "live",
                 rel_path,
                 auction_status,
                 phase,
                 current_player_id,
+                None,
+                None,
+                utc_now_iso(),
                 utc_now_iso(),
                 payload.get("saved_at"),
                 safe_json({"meta": meta_row} if meta_row else {}),
             ),
         )
+
+        if rel_path.startswith("season_dbs/"):
+            self._season_slug_to_auction_id[season_slug] = auction_id
 
         users_by_username: dict[str, dict[str, Any]] = {}
         user_table = tables.get("users")
@@ -663,6 +757,30 @@ class Migrator:
                     metadata=team,
                 )
 
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO auction_teams
+                    (
+                        id, auction_id, team_id, manager_player_id, purse_start, purse_remaining,
+                        credits_start, credits_remaining, entry_status, added_at, removed_at, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"auction-team::{auction_id}::{team_id}",
+                        auction_id,
+                        team_id,
+                        manager_player_id,
+                        team.get("purse_remaining"),
+                        team.get("purse_remaining"),
+                        team.get("credits_remaining"),
+                        team.get("credits_remaining"),
+                        "active",
+                        utc_now_iso(),
+                        None,
+                        safe_json(team),
+                    ),
+                )
+
                 # Persist roster links (active, bench, manager).
                 for pid in team.get("players", []) or []:
                     if not pid:
@@ -717,6 +835,37 @@ class Migrator:
                         "manager",
                         utc_now_iso(),
                         safe_json({"manager_username": manager_username}),
+                    ),
+                )
+
+        if player_table is not None:
+            for _, player in iter_rows(player_table):
+                pid = (player.get("id") or "").strip()
+                if not pid:
+                    continue
+
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO auction_players
+                    (
+                        id, auction_id, player_id, nomination_order, entry_status, opening_price,
+                        current_bid, sold_to_team_id, sold_price, phase_sold, added_at, removed_at, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"auction-player::{auction_id}::{pid}",
+                        auction_id,
+                        pid,
+                        None,
+                        player.get("status") or "available",
+                        player.get("base_price"),
+                        player.get("current_bid") or 0,
+                        player.get("sold_to"),
+                        player.get("sold_price"),
+                        player.get("phase_sold"),
+                        utc_now_iso(),
+                        None,
+                        safe_json(player),
                     ),
                 )
 
@@ -896,6 +1045,48 @@ class Migrator:
             return "published"
         return "active"
 
+    def _migrate_auction_snapshots(self, conn: sqlite3.Connection, snapshot_docs: list[SourceDoc]) -> None:
+        for doc in snapshot_docs:
+            rel_path = doc.rel_path
+            payload = doc.payload
+            stem = Path(rel_path).stem
+
+            base_slug = stem
+            snapshot_type = "manual"
+            if stem.endswith("-final-draft"):
+                base_slug = stem[: -len("-final-draft")]
+                snapshot_type = "final-draft"
+            elif stem.endswith("-setup"):
+                base_slug = stem[: -len("-setup")]
+                snapshot_type = "setup"
+
+            season_slug = slug_from_name(base_slug)
+            auction_id = self._season_slug_to_auction_id.get(season_slug)
+            if not auction_id:
+                continue
+
+            created_at = payload.get("saved_at") or utc_now_iso()
+            snapshot_name = payload.get("session_name") or stem
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO auction_snapshots
+                (id, auction_id, snapshot_name, snapshot_type, source_path, created_at, restored_at, state_json, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"snapshot::{auction_id}::{stable_hash(rel_path)}",
+                    auction_id,
+                    snapshot_name,
+                    snapshot_type,
+                    rel_path,
+                    created_at,
+                    None,
+                    safe_json(payload),
+                    safe_json({"slug": payload.get("slug"), "file": payload.get("file")}),
+                ),
+            )
+
     @staticmethod
     def _first_row(table_obj: Any) -> dict[str, Any] | None:
         for _, row in iter_rows(table_obj):
@@ -910,6 +1101,9 @@ class Migrator:
             "players",
             "teams",
             "auctions",
+            "auction_players",
+            "auction_teams",
+            "auction_snapshots",
             "bids",
             "trades",
             "fantasy_teams",

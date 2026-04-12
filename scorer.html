@@ -62,6 +62,25 @@
     </div>
   </div>
 
+  <!-- Substitution Screen -->
+  <div id="screen-substitution" class="screen">
+    <div class="header">Substitution Stage</div>
+    <div class="content">
+      <div style="font-size: 13px; color: #6b7280;">Swap players from playing teams with players from teams that are not in this match.</div>
+      <div><label>Playing Team</label><select id="subTeamSelect"></select></div>
+      <div><label>Player Out</label><select id="subOutSelect"></select></div>
+      <div><label>Player In (From Non-Playing Teams)</label><select id="subInSelect"></select></div>
+      <div class="grid-2">
+        <button type="button" onclick="applySubstitution()">Apply Substitution</button>
+        <button type="button" class="secondary" onclick="resetSubstitutions()">Reset</button>
+      </div>
+      <div id="substitutionStatus" style="font-size: 13px; color: #6b7280;"></div>
+      <div id="substitutionLog" style="font-size: 13px; color: #374151; background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-height: 60px;"></div>
+      <button type="button" onclick="continueToInningsSetup()" style="margin-top: auto;">Continue To Innings Setup</button>
+      <button type="button" class="secondary" onclick="showScreen('setup')">Back</button>
+    </div>
+  </div>
+
   <!-- Innings Setup Screen -->
   <div id="screen-innings-setup" class="screen">
     <div class="header" id="inningsHeader">Innings Setup</div>
@@ -214,6 +233,8 @@
   const SCORER_DATA = {{ scorer_payload | tojson }};
   const TEAM_LOOKUP = new Map((SCORER_DATA.teams || []).map((team) => [team.id, team]));
   const PLAYER_LOOKUP = new Map();
+  const BASE_ROSTERS = new Map((SCORER_DATA.teams || []).map((team) => [team.id, (team.players || []).map((p) => p.id)]));
+  let matchRosters = new Map();
 
   (SCORER_DATA.teams || []).forEach((team) => {
     (team.players || []).forEach((player) => {
@@ -223,7 +244,18 @@
 
   function $(id) { return document.getElementById(id); }
   function teamById(teamId) { return TEAM_LOOKUP.get(teamId) || null; }
-  function teamPlayers(teamId) { return teamById(teamId)?.players || []; }
+  function cloneRosters() {
+    return new Map(Array.from(BASE_ROSTERS.entries()).map(([teamId, roster]) => [teamId, [...roster]]));
+  }
+  function rosterIds(teamId) {
+    if (!matchRosters.has(teamId)) {
+      matchRosters.set(teamId, [...(BASE_ROSTERS.get(teamId) || [])]);
+    }
+    return matchRosters.get(teamId) || [];
+  }
+  function teamPlayers(teamId) {
+    return rosterIds(teamId).map((playerId) => playerById(playerId)).filter(Boolean);
+  }
   function teamLabel(teamId) { return teamById(teamId)?.name || ''; }
   function teamManagerId(teamId) { return teamById(teamId)?.manager_id || ''; }
   function playerById(playerId) { return PLAYER_LOOKUP.get(playerId) || null; }
@@ -265,6 +297,7 @@
     currentBall: 0,
     progressiveRuns: 0,
     progressiveWickets: 0,
+    substitutions: [],
     batterOrders: {},
     nextBatterOrder: 1,
     ballHistory: [],
@@ -278,6 +311,7 @@
   }
 
   function initSetup() {
+    matchRosters = cloneRosters();
     const t1 = $('team1');
     const t2 = $('team2');
     const tw = $('tossWinner');
@@ -371,7 +405,127 @@
     state.battingTeamId = battingTeamId;
     state.bowlingTeamId = bowlingTeamId;
     state.innings = 1;
+    state.substitutions = [];
+    matchRosters = cloneRosters();
 
+    showSubstitutionScreen();
+  }
+
+  function showSubstitutionScreen() {
+    const teamSelect = $('subTeamSelect');
+    teamSelect.onchange = () => {
+      populateSubstitutionControls();
+    };
+    populateSubstitutionControls();
+    renderSubstitutionLog();
+    showScreen('substitution');
+  }
+
+  function nonPlayingTeamIds() {
+    return (SCORER_DATA.teams || []).map((team) => team.id).filter((teamId) => teamId !== state.team1Id && teamId !== state.team2Id);
+  }
+
+  function populateSubstitutionControls() {
+    const teamSelect = $('subTeamSelect');
+    const outSelect = $('subOutSelect');
+    const inSelect = $('subInSelect');
+    const currentTeamValue = teamSelect.value;
+
+    teamSelect.innerHTML = '';
+    [state.team1Id, state.team2Id].forEach((teamId) => {
+      if (teamId) teamSelect.add(new Option(teamLabel(teamId), teamId));
+    });
+    if (currentTeamValue && [state.team1Id, state.team2Id].includes(currentTeamValue)) {
+      teamSelect.value = currentTeamValue;
+    }
+
+    const selectedTeamId = teamSelect.value;
+    outSelect.innerHTML = '';
+    teamPlayers(selectedTeamId).forEach((player) => outSelect.add(new Option(player.name, player.id)));
+
+    inSelect.innerHTML = '';
+    nonPlayingTeamIds().forEach((teamId) => {
+      teamPlayers(teamId).forEach((player) => {
+        inSelect.add(new Option(`${player.name} (${teamLabel(teamId)})`, player.id));
+      });
+    });
+
+    $('substitutionStatus').innerText = inSelect.options.length
+      ? ''
+      : 'No players available from non-playing teams.';
+  }
+
+  function renderSubstitutionLog() {
+    const logBox = $('substitutionLog');
+    if (!state.substitutions.length) {
+      logBox.innerHTML = '<div>No substitutions yet.</div>';
+      return;
+    }
+
+    logBox.innerHTML = state.substitutions
+      .map((item, index) => `<div>${index + 1}. ${item.teamName}: ${item.outName} OUT, ${item.inName} IN (from ${item.fromTeamName})</div>`)
+      .join('');
+  }
+
+  function applySubstitution() {
+    const targetTeamId = $('subTeamSelect').value;
+    const outPlayerId = $('subOutSelect').value;
+    const inPlayerId = $('subInSelect').value;
+
+    if (!targetTeamId || !outPlayerId || !inPlayerId) {
+      $('substitutionStatus').innerText = 'Select team, player out, and player in.';
+      return;
+    }
+
+    let sourceTeamId = '';
+    for (const teamId of nonPlayingTeamIds()) {
+      if (rosterIds(teamId).includes(inPlayerId)) {
+        sourceTeamId = teamId;
+        break;
+      }
+    }
+
+    if (!sourceTeamId) {
+      $('substitutionStatus').innerText = 'Selected incoming player is not available in non-playing teams.';
+      return;
+    }
+
+    const targetRoster = rosterIds(targetTeamId);
+    const sourceRoster = rosterIds(sourceTeamId);
+
+    if (!targetRoster.includes(outPlayerId)) {
+      $('substitutionStatus').innerText = 'Selected outgoing player is no longer available.';
+      return;
+    }
+
+    targetRoster[targetRoster.indexOf(outPlayerId)] = inPlayerId;
+    sourceRoster[sourceRoster.indexOf(inPlayerId)] = outPlayerId;
+
+    state.substitutions.push({
+      teamId: targetTeamId,
+      teamName: teamLabel(targetTeamId),
+      outPlayerId,
+      outName: playerLabel(outPlayerId),
+      inPlayerId,
+      inName: playerLabel(inPlayerId),
+      fromTeamId: sourceTeamId,
+      fromTeamName: teamLabel(sourceTeamId)
+    });
+
+    $('substitutionStatus').innerText = 'Substitution applied.';
+    populateSubstitutionControls();
+    renderSubstitutionLog();
+  }
+
+  function resetSubstitutions() {
+    matchRosters = cloneRosters();
+    state.substitutions = [];
+    $('substitutionStatus').innerText = 'Substitutions reset.';
+    populateSubstitutionControls();
+    renderSubstitutionLog();
+  }
+
+  function continueToInningsSetup() {
     setupInningsScreen();
   }
 
@@ -746,11 +900,17 @@
   }
 
   function exportCSV() {
+    const substitutionSummary = state.substitutions.length
+      ? state.substitutions.map((item) => `${item.teamName}: ${item.outName} -> ${item.inName} (from ${item.fromTeamName})`).join(' | ')
+      : 'None';
+
     const headers = [
       'Match ID',
       'Match',
       'Venue',
       'Scorer Version',
+      'Substitutions Applied',
+      'Substitution Details',
       'Innings Order',
       'Batting Team',
       'Batting Team ID',
@@ -784,6 +944,8 @@
       ball.match,
       ball.venue,
       ball.scorerVersion,
+      state.substitutions.length,
+      substitutionSummary,
       ball.inningsOrder,
       ball.battingTeam,
       ball.battingTeamId,
@@ -812,7 +974,26 @@
       state.matchResult
     ]);
 
-    const csv = [headers.map(csvValue).join(','), ...rows.map((row) => row.map(csvValue).join(','))].join('\n');
+    const csvLines = [headers.map(csvValue).join(','), ...rows.map((row) => row.map(csvValue).join(','))];
+
+    csvLines.push('');
+    csvLines.push('"Substitution Log"');
+    csvLines.push(['Step', 'Playing Team', 'Player Out', 'Player In', 'From Team'].map(csvValue).join(','));
+    if (state.substitutions.length) {
+      state.substitutions.forEach((item, index) => {
+        csvLines.push([
+          index + 1,
+          item.teamName,
+          item.outName,
+          item.inName,
+          item.fromTeamName
+        ].map(csvValue).join(','));
+      });
+    } else {
+      csvLines.push(["0", "None", "None", "None", "None"].map(csvValue).join(','));
+    }
+
+    const csv = csvLines.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

@@ -3,6 +3,7 @@
 {% block topbar_nav %}
 <a href="{{ url_for('unified_admin.dashboard', tab='auction') }}">Auction</a>
 <a href="{{ url_for('unified_admin.dashboard', tab='fantasy') }}">Fantasy</a>
+<a href="{{ url_for('unified_admin.dashboard', tab='scorer') }}">Scorer</a>
 {% endblock %}
 {% block content %}
 <section class="stack" id="adminDashboard" data-is-setup="{{ 'true' if state.phase == 'setup' else 'false' }}" data-active-tab="{{ active_tab }}">
@@ -385,6 +386,31 @@
       </div>
     </div>
     {% endif %}
+  </div>
+
+  <div id="adminTab-scorer" class="admin-tab-panel" {% if active_tab != 'scorer' %}hidden{% endif %}>
+    <div class="card">
+      <div class="row-between">
+        <h3>Scorer Configuration</h3>
+        <a class="btn btn-outline" href="{{ scorer_download_url }}">Download Current HTML</a>
+      </div>
+      <p>Versioned scorer builds are rendered from the selected season database and can be downloaded or used hosted at /scorer.</p>
+      <form id="scorerForm" class="grid-2">
+        <input name="title" value="{{ scorer_config.title }}" placeholder="Scorer title">
+        <input name="version" value="{{ scorer_config.version }}" placeholder="Version">
+        <select name="season_slug">
+          <option value="">Use latest available season</option>
+          {% for season in scorer_available_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == scorer_config.season_slug %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <input name="max_overs" type="number" min="1" value="{{ scorer_config.max_overs }}" placeholder="Max overs">
+        <button class="btn" type="submit">Save Scorer Config</button>
+      </form>
+      <p id="scorerStatus" class="mono"></p>
+      <p class="mono">Hosted page: <a href="{{ url_for('landing.scorer') }}">{{ url_for('landing.scorer', _external=False) }}</a></p>
+      <p class="mono">Download filename: {{ scorer_download_filename }}</p>
+    </div>
   </div>
 </section>
 {% endblock %}

@@ -12,6 +12,7 @@ from app.db import LockedTinyDB, SeasonStoreManager
 from app.services.auth_service import AuthService
 from app.services.auction_service import AuctionService
 from app.services.fantasy_service import FantasyService
+from app.services.scorer_service import ScorerService
 
 socketio = SocketIO(async_mode="threading")
 
@@ -143,6 +144,12 @@ def create_app():
     auth_service = AuthService(auth_store)
     auction_service = AuctionService(auction_store)
     fantasy_service = FantasyService(auction_store, app.config["PUBLISHED_SESSION_DIR"], season_store_manager)
+    scorer_service = ScorerService(
+        season_store_manager,
+        auction_service,
+        app.root_path,
+        app.config["SCORER_CONFIG_PATH"],
+    )
 
     auth_service.seed_admin_if_missing()
     auction_service.bootstrap_defaults()
@@ -153,6 +160,7 @@ def create_app():
     app.extensions["auth_service"] = auth_service
     app.extensions["auction_service"] = auction_service
     app.extensions["fantasy_service"] = fantasy_service
+    app.extensions["scorer_service"] = scorer_service
 
     _migrate_legacy_published_sessions(app)
     _migrate_legacy_session_snapshots(app)

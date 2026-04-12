@@ -17,6 +17,8 @@ const publishSessionBtn = document.getElementById("publishSessionBtn");
 const publishNameInput = document.getElementById("publishNameInput");
 const publishSuffixInput = document.getElementById("publishSuffixInput");
 const publishStatus = document.getElementById("publishStatus");
+const scorerForm = document.getElementById("scorerForm");
+const scorerStatus = document.getElementById("scorerStatus");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
 
@@ -348,6 +350,23 @@ if (loadSessionBtn) {
     }
     sessionStatus.textContent = `Loaded session: ${res.loaded}`;
     await refreshSessions();
+  });
+}
+
+if (scorerForm) {
+  scorerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await postForm("/admin/scorer", new FormData(scorerForm));
+    if (!res.ok) {
+      if (scorerStatus) {
+        scorerStatus.textContent = `Error: ${res.error || "Unable to save scorer config"}`;
+      }
+      return;
+    }
+
+    if (scorerStatus) {
+      scorerStatus.textContent = `Saved ${res.config.title} (${res.config.version}) to ${res.download_filename}`;
+    }
   });
 }
 

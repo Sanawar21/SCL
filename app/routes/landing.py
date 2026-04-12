@@ -1,6 +1,23 @@
-from flask import Blueprint, current_app, render_template, request
+from flask import Blueprint, current_app, render_template, render_template_string, request, make_response
 
 landing_bp = Blueprint("landing", __name__)
+
+
+def _render_scorer_html():
+    scorer_service = current_app.extensions["scorer_service"]
+    template = scorer_service.template_source()
+    context = scorer_service.build_context()
+    return render_template_string(template, **context)
+
+
+def _scorer_response(download: bool = False):
+    scorer_service = current_app.extensions["scorer_service"]
+    html = _render_scorer_html()
+    response = make_response(html)
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    if download:
+        response.headers["Content-Disposition"] = f'attachment; filename="{scorer_service.download_filename()}"'
+    return response
 
 
 def _season_rank(season):
@@ -32,3 +49,16 @@ def index():
         seasons=seasons,
         selected_season=selected_season,
     )
+
+
+@landing_bp.get("/scorer")
+def scorer():
+    download = (request.args.get("download") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if download:
+        return _scorer_response(download=True)
+    return _scorer_response(download=False)
+
+
+@landing_bp.get("/scorer/download")
+def scorer_download():
+    return _scorer_response(download=True)

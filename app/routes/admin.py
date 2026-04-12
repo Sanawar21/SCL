@@ -29,12 +29,14 @@ SPECIALITIES = {"ALL_ROUNDER", "BATTER", "BOWLER"}
 def _build_unified_admin_context():
     auction_service = current_app.extensions["auction_service"]
     fantasy_service = current_app.extensions["fantasy_service"]
+    scorer_service = current_app.extensions["scorer_service"]
 
     seasons = fantasy_service.list_fantasy_seasons()
     published_sessions = fantasy_service.list_published_sessions()
+    scorer_config = scorer_service.load_config()
     season_slug = (request.args.get("season") or "").strip().lower()
     active_tab = (request.args.get("tab") or "auction").strip().lower()
-    if active_tab not in {"auction", "fantasy"}:
+    if active_tab not in {"auction", "fantasy", "scorer"}:
         active_tab = "auction"
 
     selected = None
@@ -51,6 +53,10 @@ def _build_unified_admin_context():
         "published_sessions": published_sessions,
         "selected_season": selected,
         "entries": entries,
+        "scorer_config": scorer_config,
+        "scorer_available_seasons": scorer_service.list_seasons(),
+        "scorer_download_filename": scorer_service.download_filename(scorer_config),
+        "scorer_download_url": url_for("landing.scorer_download"),
     }
 
 
@@ -144,6 +150,36 @@ def dashboard_unified():
     if user.get("role") != ROLE_ADMIN:
         return redirect(url_for("viewer.home"))
     return render_template("admin/unified_dashboard.html", **_build_unified_admin_context())
+
+
+@unified_admin_bp.post("/admin/scorer", endpoint="scorer_save")
+def scorer_save():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    scorer_service = current_app.extensions["scorer_service"]
+    try:
+        config = scorer_service.save_config(
+            {
+                "title": request.form.get("title", "").strip(),
+                "version": request.form.get("version", "").strip(),
+                "season_slug": request.form.get("season_slug", "").strip().lower(),
+                "max_overs": request.form.get("max_overs", "").strip(),
+            }
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "config": config,
+                "download_filename": scorer_service.download_filename(config),
+                "download_url": url_for("landing.scorer_download"),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 @admin_bp.post("/create-manager")

@@ -12,3 +12,4 @@ class Config:
     SESSION_DIR = os.environ.get("SCL_SESSION_DIR", "sessions")
     PUBLISHED_SESSION_DIR = os.environ.get("SCL_PUBLISHED_SESSION_DIR", "published_sessions")
     SEASON_DB_DIR = os.environ.get("SCL_SEASON_DB_DIR", "data/season_dbs")
+    SCORER_CONFIG_PATH = os.environ.get("SCL_SCORER_CONFIG_PATH", "data/scorer_config.json")

@@ -311,6 +311,19 @@ class FantasyService:
     def _normalize(value: str):
         return " ".join((value or "").strip().lower().split())
 
+    @staticmethod
+    def _team_signature(player_ids):
+        normalized_ids = sorted((player_id or "").strip() for player_id in (player_ids or []) if (player_id or "").strip())
+        return "|".join(normalized_ids)
+
+    def _entry_team_signature(self, entry: dict) -> str:
+        signature = (entry or {}).get("team_signature")
+        if signature:
+            return str(signature)
+        picks = entry.get("picks") or []
+        pick_ids = [pick.get("player_id") for pick in picks if pick.get("player_id")]
+        return self._team_signature(pick_ids)
+
     def _eligible_lookup(self, season_slug: str):
         tables = self._load_season_tables(season_slug)
         lookup = {}
@@ -412,6 +425,8 @@ class FantasyService:
         if len(unique_player_ids) != 4:
             raise ValueError("Fantasy team must contain exactly 4 selections")
 
+        team_signature = self._team_signature(unique_player_ids)
+
         players = self._season_players(season_slug)
         players_by_id = {player["id"]: player for player in players if player.get("id")}
 
@@ -439,6 +454,7 @@ class FantasyService:
             "season_slug": (season_slug or "").strip().lower(),
             "entrant_name": entrant["entrant_display_name"],
             "entrant_key": entrant["entrant_key"],
+            "team_signature": team_signature,
             "picks": picks,
             "total_credits": total_credits,
             "created_at": datetime.utcnow().isoformat(),
@@ -449,6 +465,23 @@ class FantasyService:
             entries = db.table("fantasy_entries")
             existing_entries = entries.all()
             normalized_entrant_name = self._normalize(entry["entrant_name"])
+
+            conflicting_entry = None
+            for existing in existing_entries:
+                existing_signature = self._entry_team_signature(existing)
+                if existing_signature and not (existing.get("team_signature") or "").strip():
+                    doc_id = getattr(existing, "doc_id", None)
+                    if doc_id is not None:
+                        entries.update({"team_signature": existing_signature}, doc_ids=[doc_id])
+
+                if existing_signature == team_signature:
+                    conflicting_entry = existing
+                    break
+
+            if conflicting_entry:
+                conflict_name = (conflicting_entry.get("entrant_name") or "another entrant").strip() or "another entrant"
+                raise ValueError(f"Your team conflicts with {conflict_name}'s squad")
+
             duplicate = next(
                 (
                     existing

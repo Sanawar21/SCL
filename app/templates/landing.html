@@ -1,0 +1,82 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}SCL Hub{% endblock %}
+
+{% block topbar_nav %}
+  <a id="nav-fantasy" data-default-href="{{ url_for('fantasy.fantasy_home') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+  <a id="nav-auction" data-default-href="{{ url_for('viewer.home') }}" href="{{ url_for('viewer.home') }}">Auction</a>
+  <a href="#teams">Teams</a>
+  <a href="#matches">Matches</a>
+  <a href="#table">Table</a>
+  <a href="#finances">Finances</a>
+  <label class="season-picker" for="season-select">
+    <select id="season-select" aria-label="Select season">
+      {% for season in seasons %}
+      <option value="{{ season.slug }}" {% if season.slug == selected_season %}selected{% endif %}>{{ season.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block content %}
+<section class="card hero landing-hero">
+  <h1>Section C League</h1>
+  <p>One home for Fantasy and Auction views, with season-specific navigation.</p>
+</section>
+
+<section class="landing-grid">
+  <article id="teams" class="card">
+    <h2>Teams</h2>
+    <p>Track squads and lineups for the active season.</p>
+  </article>
+
+  <article id="matches" class="card">
+    <h2>Matches</h2>
+    <p>Browse fixtures and results across the season timeline.</p>
+  </article>
+
+  <article id="table" class="card">
+    <h2>Table</h2>
+    <p>See points, net run rate, and standings in one place.</p>
+  </article>
+
+  <article id="finances" class="card">
+    <h2>Finances</h2>
+    <p>Review purse balances and budget snapshots.</p>
+  </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const seasonSelect = document.getElementById("season-select");
+    const fantasyLink = document.getElementById("nav-fantasy");
+    const auctionLink = document.getElementById("nav-auction");
+
+    if (!seasonSelect || !fantasyLink || !auctionLink) {
+      return;
+    }
+
+    function updateNavLinks() {
+      const season = seasonSelect.value;
+      const fantasyDefault = fantasyLink.dataset.defaultHref;
+      const auctionDefault = auctionLink.dataset.defaultHref;
+
+      fantasyLink.href = season ? `/fantasy/${encodeURIComponent(season)}` : fantasyDefault;
+      auctionLink.href = season ? `/auction/${encodeURIComponent(season)}` : auctionDefault;
+
+      const url = new URL(window.location.href);
+      if (season) {
+        url.searchParams.set("season", season);
+      } else {
+        url.searchParams.delete("season");
+      }
+      window.history.replaceState({}, "", url);
+    }
+
+    seasonSelect.addEventListener("change", updateNavLinks);
+    updateNavLinks();
+  })();
+</script>
+{% endblock %}

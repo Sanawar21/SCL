@@ -37,6 +37,46 @@ body {
 .topbar a { color: white; text-decoration: none; border-bottom: 1px solid transparent; }
 .topbar a:hover { border-bottom-color: white; }
 
+.season-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar .season-picker select {
+  appearance: none;
+  width: auto;
+  margin: 0;
+  padding: 0 14px 0 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+}
+
+.topbar .season-picker select:hover,
+.topbar .season-picker select:focus {
+  border-bottom-color: white;
+  outline: none;
+}
+
+.season-picker::after {
+  content: "\25BE";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-52%);
+  color: white;
+  pointer-events: none;
+  font-size: 11px;
+}
+
+.topbar .season-picker option {
+  color: #1d2b35;
+}
+
 .container { padding: 12px; max-width: 920px; margin: 0 auto; }
 .stack { display: grid; gap: 12px; }
 .stack-sm { display: grid; gap: 8px; }
@@ -54,6 +94,21 @@ body {
 .published-auctions-card { margin-top: 16px; }
 .hero h1 { margin: 0 0 10px; }
 .hero-actions { display: grid; gap: 8px; }
+
+.landing-hero {
+  margin-bottom: 12px;
+}
+
+.landing-grid {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 780px) {
+  .landing-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 
 .btn {
   border: 0;

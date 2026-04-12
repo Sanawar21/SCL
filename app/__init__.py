@@ -159,9 +159,11 @@ def create_app():
 
     from app.routes.admin import admin_bp, unified_admin_bp
     from app.routes.fantasy import fantasy_bp
+    from app.routes.landing import landing_bp
     from app.routes.manager import manager_bp
     from app.routes.viewer import viewer_bp
 
+    app.register_blueprint(landing_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(unified_admin_bp)
     app.register_blueprint(fantasy_bp)

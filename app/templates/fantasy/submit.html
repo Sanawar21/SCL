@@ -29,7 +29,7 @@
               {% if player.selection_type == 'manager' %}
                 [Manager]
               {% endif %}
-              ({{ player.tier|title }}, {{ player.credits }} credits, {{ player.auction_team_name }})
+              (<strong>{{ player.speciality|replace('_', ' ')|title }}</strong>, {{ player.tier|title }}, {{ player.credits }} credits, {{ player.auction_team_name }})
             </span>
           </label>
         {% endfor %}

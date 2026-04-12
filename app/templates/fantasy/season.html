@@ -74,7 +74,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Rank</th><th>Name</th><th>Tier</th><th>Auction Team</th><th>Picks</th><th>Pts</th></tr>
+          <tr><th>Rank</th><th>Name</th><th>Tier</th><th>Speciality</th><th>Auction Team</th><th>Picks</th><th>Pts</th></tr>
         </thead>
         <tbody>
         {% for row in player_rankings %}
@@ -82,6 +82,7 @@
             <td>{{ loop.index }}</td>
             <td>{{ row.player_name }}</td>
             <td>{{ row.tier|title }}</td>
+            <td>{{ row.speciality|replace('_', ' ')|title }}</td>
             <td>{{ row.auction_team_name }}</td>
             <td>{{ row.pick_count }}</td>
             <td>{{ row.get('pts') if row.get('pts') is not none else '-' }}</td>

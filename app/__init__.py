@@ -12,6 +12,7 @@ from app.db import LockedTinyDB, SeasonStoreManager
 from app.services.auth_service import AuthService
 from app.services.auction_service import AuctionService
 from app.services.fantasy_service import FantasyService
+from app.services.global_league_service import GlobalLeagueService
 from app.services.scorer_service import ScorerService
 
 socketio = SocketIO(async_mode="threading")
@@ -129,6 +130,7 @@ def create_app():
 
     legacy_db_path = _resolve_path(app, app.config["DB_PATH"])
     configured_auction_path = _resolve_path(app, app.config["AUCTION_DB_PATH"])
+    configured_global_league_path = _resolve_path(app, app.config["GLOBAL_LEAGUE_DB_PATH"])
     configured_auth_path = _resolve_path(app, app.config["AUTH_DB_PATH"])
 
     auction_db_env_override = os.environ.get("SCL_AUCTION_DB_PATH")
@@ -140,9 +142,11 @@ def create_app():
 
     auth_store = LockedTinyDB(str(configured_auth_path))
     auction_store = LockedTinyDB(auction_db_path)
+    global_league_store = LockedTinyDB(str(configured_global_league_path))
     season_store_manager = SeasonStoreManager(app.config["SEASON_DB_DIR"], app.root_path)
     auth_service = AuthService(auth_store)
     auction_service = AuctionService(auction_store)
+    global_league_service = GlobalLeagueService(global_league_store)
     fantasy_service = FantasyService(auction_store, app.config["PUBLISHED_SESSION_DIR"], season_store_manager)
     scorer_service = ScorerService(
         season_store_manager,
@@ -156,9 +160,11 @@ def create_app():
 
     app.extensions["auth_store"] = auth_store
     app.extensions["auction_store"] = auction_store
+    app.extensions["global_league_store"] = global_league_store
     app.extensions["season_store_manager"] = season_store_manager
     app.extensions["auth_service"] = auth_service
     app.extensions["auction_service"] = auction_service
+    app.extensions["global_league_service"] = global_league_service
     app.extensions["fantasy_service"] = fantasy_service
     app.extensions["scorer_service"] = scorer_service
 

@@ -2,3 +2,4 @@ __pycache__
 .venv
 data/
 data-backup/
+data-backup-2/

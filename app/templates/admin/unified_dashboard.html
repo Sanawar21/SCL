@@ -120,25 +120,21 @@
     </div>
 
     <div class="card">
-      <h3>Create Manager Credentials</h3>
+      <h3>Create Team Account</h3>
       {% if state.phase != 'setup' %}
         <p><strong>Setup controls are disabled outside setup phase.</strong></p>
       {% endif %}
       <form id="managerForm" class="grid-2">
-        <input name="username" placeholder="username" required>
-        <input name="display_name" placeholder="manager name" required>
         <input name="team_name" placeholder="team name" required>
-        <select name="manager_tier">
-          <option value="silver">Silver Manager</option>
-          <option value="gold">Gold Manager</option>
-          <option value="platinum">Platinum Manager</option>
+        <select name="manager_player_id" required>
+          <option value="">Select manager player</option>
+          {% for player in available_manager_players %}
+          <option value="{{ player.id }}">
+            {{ player.name }} ({{ player.tier|title }}, {{ (player.speciality or '-')|replace('_', ' ')|title }})
+          </option>
+          {% endfor %}
         </select>
-        <select name="speciality" required>
-          <option value="ALL_ROUNDER">All-Rounder</option>
-          <option value="BATTER">Batter</option>
-          <option value="BOWLER">Bowler</option>
-        </select>
-        <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Create Manager</button>
+        <button class="btn" type="submit" {% if state.phase != 'setup' %}disabled{% endif %}>Create Team Account</button>
       </form>
       <p id="credResult" class="mono"></p>
     </div>
@@ -162,35 +158,19 @@
     </div>
 
     <div class="card">
-      <h3>Setup: Managers</h3>
+      <h3>Setup: Team Accounts</h3>
       <div class="table-wrap">
         <table id="managerTable">
           <thead>
-            <tr><th>Username</th><th>Name</th><th>Speciality</th><th>Team</th><th>Action</th></tr>
+            <tr><th>Username</th><th>Display Name</th><th>Team</th><th>Manager Player Id</th></tr>
           </thead>
           <tbody>
           {% for m in state.managers %}
             <tr>
               <td>{{ m.username }}</td>
               <td>{{ m.display_name }}</td>
-              <td>{{ (m.speciality or '-')|replace('_', ' ')|title }}</td>
               <td>{{ m.team_name or '-' }}</td>
-              <td>
-                <button
-                  class="btn btn-outline edit-manager-btn"
-                  type="button"
-                  data-username="{{ m.username }}"
-                  data-display-name="{{ m.display_name }}"
-                  data-speciality="{{ m.speciality or 'ALL_ROUNDER' }}"
-                  {% if state.phase != 'setup' %}disabled{% endif %}
-                >Edit</button>
-                <button
-                  class="btn btn-danger delete-manager-btn"
-                  type="button"
-                  data-username="{{ m.username }}"
-                  {% if state.phase != 'setup' %}disabled{% endif %}
-                >Delete</button>
-              </td>
+              <td>{{ m.manager_player_id or '-' }}</td>
             </tr>
           {% endfor %}
           </tbody>
@@ -203,7 +183,7 @@
       <div class="table-wrap">
         <table id="setupTeamTable">
           <thead>
-            <tr><th>Team</th><th>Manager</th><th>Manager Speciality</th><th>Manager Tier</th><th>Action</th></tr>
+            <tr><th>Team</th><th>Manager</th><th>Manager Speciality</th><th>Manager Tier</th><th>Manager Player</th><th>Participation</th><th>Action</th></tr>
           </thead>
           <tbody>
           {% for t in state.teams %}
@@ -212,6 +192,8 @@
               <td>{{ t.manager_name }}</td>
               <td>{{ (t.manager_speciality or '-')|replace('_', ' ')|title }}</td>
               <td>{{ t.manager_tier|title }}</td>
+              <td>{{ t.manager_player_id or '-' }}</td>
+              <td>{% if t.is_active %}Active{% else %}Excluded{% endif %}</td>
               <td>
                 <button
                   class="btn btn-outline edit-team-btn"
@@ -219,6 +201,7 @@
                   data-team-id="{{ t.id }}"
                   data-team-name="{{ t.name }}"
                   data-manager-tier="{{ t.manager_tier }}"
+                  data-manager-player-id="{{ t.manager_player_id or '' }}"
                   {% if state.phase != 'setup' %}disabled{% endif %}
                 >Edit</button>
                 <button
@@ -226,8 +209,17 @@
                   type="button"
                   data-team-id="{{ t.id }}"
                   data-team-name="{{ t.name }}"
+                  data-team-active="{{ 'true' if t.is_active else 'false' }}"
                   {% if state.phase != 'setup' %}disabled{% endif %}
                 >Delete</button>
+                <button
+                  class="btn {% if t.is_active %}btn-danger{% else %}btn-secondary{% endif %} toggle-team-participation-btn"
+                  type="button"
+                  data-team-id="{{ t.id }}"
+                  data-team-name="{{ t.name }}"
+                  data-is-active="{{ 'true' if t.is_active else 'false' }}"
+                  {% if state.phase != 'setup' %}disabled{% endif %}
+                >{% if t.is_active %}Exclude{% else %}Include{% endif %}</button>
               </td>
             </tr>
           {% endfor %}
@@ -413,6 +405,7 @@
     </div>
   </div>
 </section>
+<script id="teamManagerOptions" type="application/json">{{ team_manager_options|tojson }}</script>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>

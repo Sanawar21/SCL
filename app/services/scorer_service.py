@@ -117,6 +117,8 @@ class ScorerService:
             team_name = (team.get("name") or team_id or "Team").strip()
             manager_username = (team.get("manager_username") or "").strip()
             manager_user = users_by_username.get(manager_username, {})
+            manager_player_id = (team.get("manager_player_id") or "").strip()
+            manager_player = players_by_id.get(manager_player_id) if manager_player_id else None
 
             roster_ids = []
             for field_name in ("players", "bench"):
@@ -139,7 +141,16 @@ class ScorerService:
                     }
                 )
 
-            if manager_username:
+            if manager_player:
+                roster.append(
+                    {
+                        "id": manager_player.get("id"),
+                        "name": manager_player.get("name") or manager_user.get("display_name") or manager_username or team_name,
+                        "tier": (manager_player.get("tier") or team.get("manager_tier") or "").strip().lower(),
+                        "speciality": (manager_player.get("speciality") or manager_user.get("speciality") or "-").strip() or "-",
+                    }
+                )
+            elif manager_username:
                 roster.append(
                     {
                         "id": team_id,
@@ -154,9 +165,13 @@ class ScorerService:
                 {
                     "id": team_id,
                     "name": team_name,
-                    "manager_id": team_id,
+                    "manager_id": manager_player_id or team_id,
                     "manager_username": manager_username,
-                    "manager_name": manager_user.get("display_name") or manager_username or team_name,
+                    "manager_name": (
+                        manager_player.get("name")
+                        if manager_player
+                        else (manager_user.get("display_name") or manager_username or team_name)
+                    ),
                     "manager_tier": (team.get("manager_tier") or "").strip().lower(),
                     "players": roster,
                 }

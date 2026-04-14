@@ -28,6 +28,7 @@ SPECIALITIES = {"ALL_ROUNDER", "BATTER", "BOWLER"}
 
 def _build_unified_admin_context():
     auction_service = current_app.extensions["auction_service"]
+    auction_store = current_app.extensions["auction_store"]
     fantasy_service = current_app.extensions["fantasy_service"]
     scorer_service = current_app.extensions["scorer_service"]
 
@@ -46,6 +47,64 @@ def _build_unified_admin_context():
         if selected:
             entries = fantasy_service.get_entries_for_season(season_slug)
 
+    available_manager_players = []
+    team_manager_options = {}
+    with auction_store.read() as db:
+        teams = db.table("teams").all()
+        players = db.table("players").all()
+
+        assigned_manager_ids = {
+            (team.get("manager_player_id") or "").strip()
+            for team in teams
+            if (team.get("manager_player_id") or "").strip()
+        }
+        players_by_id = {
+            (player.get("id") or "").strip(): player
+            for player in players
+            if (player.get("id") or "").strip()
+        }
+
+        for player in players:
+            player_id = (player.get("id") or "").strip()
+            if not player_id or player_id in assigned_manager_ids:
+                continue
+            if (player.get("status") or "").strip().lower() != "unsold":
+                continue
+
+            available_manager_players.append(
+                {
+                    "id": player_id,
+                    "name": player.get("name") or "Unknown",
+                    "tier": (player.get("tier") or "").strip().lower(),
+                    "speciality": (player.get("speciality") or "-").strip() or "-",
+                }
+            )
+
+        # Team manager reassignment options = available pool + current manager player.
+        for team in teams:
+            team_id = (team.get("id") or "").strip()
+            if not team_id:
+                continue
+
+            options = [dict(item) for item in available_manager_players]
+            current_manager_player_id = (team.get("manager_player_id") or "").strip()
+            if current_manager_player_id and current_manager_player_id in players_by_id:
+                current_player = players_by_id[current_manager_player_id]
+                if not any(item["id"] == current_manager_player_id for item in options):
+                    options.append(
+                        {
+                            "id": current_manager_player_id,
+                            "name": current_player.get("name") or "Unknown",
+                            "tier": (current_player.get("tier") or "").strip().lower(),
+                            "speciality": (current_player.get("speciality") or "-").strip() or "-",
+                        }
+                    )
+
+            options.sort(key=lambda item: item["name"].lower())
+            team_manager_options[team_id] = options
+
+    available_manager_players.sort(key=lambda item: item["name"].lower())
+
     return {
         "state": auction_service.get_state(),
         "active_tab": active_tab,
@@ -53,6 +112,8 @@ def _build_unified_admin_context():
         "published_sessions": published_sessions,
         "selected_season": selected,
         "entries": entries,
+        "available_manager_players": available_manager_players,
+        "team_manager_options": team_manager_options,
         "scorer_config": scorer_config,
         "scorer_available_seasons": scorer_service.list_seasons(),
         "scorer_download_filename": scorer_service.download_filename(scorer_config),
@@ -189,12 +250,16 @@ def create_manager():
     auth_created_for = None
     try:
         _ensure_setup_phase()
-        username = request.form.get("username", "").strip()
-        display_name = request.form.get("display_name", "").strip()
         team_name = request.form.get("team_name", "").strip()
-        manager_tier = request.form.get("manager_tier", "silver").strip().lower()
-        speciality = _normalize_speciality(request.form.get("speciality", ""))
-        credentials_result = auth_service.create_manager_credentials(username=username, display_name=display_name)
+        manager_player_id = request.form.get("manager_player_id", "").strip()
+
+        if not team_name:
+            raise ValueError("Team name is required")
+        if not manager_player_id:
+            raise ValueError("Select a manager player")
+
+        credentials_result = auth_service.create_team_credentials(team_name=team_name, display_name=team_name)
+        username = credentials_result["username"]
         auth_created_for = username
 
         team_id = secrets.token_hex(8)
@@ -202,16 +267,35 @@ def create_manager():
         with auction_store.write() as db:
             auction_users = db.table("users")
             teams = db.table("teams")
+            players = db.table("players")
+            Team = Query()
+            Player = Query()
 
             if auction_users.get(lambda u: u.get("username") == username):
                 raise ValueError("Username already exists")
+
+            if teams.get(Team.name == team_name):
+                raise ValueError("Team name already exists")
+
+            manager_player = players.get(Player.id == manager_player_id)
+            if not manager_player:
+                raise ValueError("Selected manager player not found")
+
+            if teams.get(Team.manager_player_id == manager_player_id):
+                raise ValueError("Selected manager player is already assigned to a team")
+
+            if (manager_player.get("status") or "").strip().lower() != "unsold":
+                raise ValueError("Selected manager player is not available")
+
+            manager_tier = (manager_player.get("tier") or "silver").strip().lower()
+            manager_speciality = (manager_player.get("speciality") or "ALL_ROUNDER").strip().upper()
 
             auction_users.insert(
                 {
                     "username": username,
                     "role": ROLE_MANAGER,
-                    "display_name": display_name,
-                    "speciality": speciality,
+                    "display_name": team_name,
+                    "speciality": manager_speciality,
                     "team_id": team_id,
                 }
             )
@@ -220,14 +304,29 @@ def create_manager():
                 {
                     "id": team_id,
                     "name": team_name,
+                    "is_active": True,
                     "manager_username": username,
                     "manager_tier": manager_tier,
+                    "manager_player_id": manager_player_id,
                     "players": [],
                     "bench": [],
                     "spent": 0,
                     "purse_remaining": None,
                     "credits_remaining": None,
                 }
+            )
+
+            players.update(
+                {
+                    "status": "sold",
+                    "sold_to": team_id,
+                    "sold_price": 0,
+                    "phase_sold": None,
+                    "current_bid": 0,
+                    "current_bidder_team_id": None,
+                    "manager_team_id": team_id,
+                },
+                Player.id == manager_player_id,
             )
 
         current_app.extensions["auction_service"].setup_team_budgets()
@@ -373,94 +472,54 @@ def delete_player():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
-@admin_bp.post("/update-manager")
+@admin_bp.post("/update-team")
 @login_required(role=ROLE_ADMIN)
-def update_manager():
-    manager_username = request.form.get("manager_username", "").strip()
-    username = request.form.get("username", "").strip()
-    display_name = request.form.get("display_name", "").strip()
-    speciality = request.form.get("speciality", "")
+def update_team():
+    team_id = request.form.get("team_id", "").strip()
+    team_name = request.form.get("team_name", "").strip()
+    manager_player_id = request.form.get("manager_player_id", "").strip()
 
-    if not manager_username:
-        return jsonify({"ok": False, "error": "Missing manager username"}), 400
-    if not username:
-        return jsonify({"ok": False, "error": "Username is required"}), 400
-    if not display_name:
-        return jsonify({"ok": False, "error": "Display name is required"}), 400
+    if not team_id:
+        return jsonify({"ok": False, "error": "Missing team id"}), 400
+    if not team_name:
+        return jsonify({"ok": False, "error": "Team name is required"}), 400
 
     try:
         _ensure_setup_phase()
-        normalized_speciality = _normalize_speciality(speciality)
-        auth_service = current_app.extensions["auth_service"]
-        auth_service.assert_username_available(username, except_username=manager_username)
-        User = Query()
-        Team = Query()
-        store = current_app.extensions["auction_store"]
-        auction_service = current_app.extensions["auction_service"]
-
-        with store.write() as db:
-            users = db.table("users")
-            teams = db.table("teams")
-
-            manager = users.get(User.username == manager_username)
-            if not manager or manager.get("role") != "manager":
-                return jsonify({"ok": False, "error": "Manager not found"}), 404
-
-            username_taken = users.get((User.username == username) & (User.username != manager_username))
-            if username_taken:
-                return jsonify({"ok": False, "error": "Username already exists"}), 400
-
-            users.update(
-                {
-                    "username": username,
-                    "display_name": display_name,
-                    "speciality": normalized_speciality,
-                },
-                User.username == manager_username,
-            )
-
-            teams.update(
-                {"manager_username": username},
-                Team.manager_username == manager_username,
-            )
-
-        auth_service.update_user(current_username=manager_username, new_username=username, display_name=display_name)
-
-        socketio.emit("state_update", auction_service.get_state())
-        return jsonify({"ok": True})
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"ok": False, "error": str(exc)}), 400
-
-
-@admin_bp.post("/delete-manager")
-@login_required(role=ROLE_ADMIN)
-def delete_manager():
-    manager_username = request.form.get("manager_username", "").strip()
-    if not manager_username:
-        return jsonify({"ok": False, "error": "Missing manager username"}), 400
-
-    try:
-        _ensure_setup_phase()
-        User = Query()
         Team = Query()
         Player = Query()
+        User = Query()
         store = current_app.extensions["auction_store"]
         auction_service = current_app.extensions["auction_service"]
+        auth_service = current_app.extensions["auth_service"]
 
+        linked_username = None
         with store.write() as db:
-            users = db.table("users")
             teams = db.table("teams")
             players = db.table("players")
+            users = db.table("users")
+            if not teams.get(Team.id == team_id):
+                return jsonify({"ok": False, "error": "Team not found"}), 404
 
-            manager = users.get(User.username == manager_username)
-            if not manager or manager.get("role") != "manager":
-                return jsonify({"ok": False, "error": "Manager not found"}), 404
+            team = teams.get(Team.id == team_id)
+            previous_manager_player_id = (team.get("manager_player_id") or "").strip()
+            selected_manager_player_id = manager_player_id or previous_manager_player_id
+            if not selected_manager_player_id:
+                return jsonify({"ok": False, "error": "Manager player is required"}), 400
 
-            team_id = manager.get("team_id")
-            team = teams.get(Team.id == team_id) if team_id else None
+            selected_manager = players.get(Player.id == selected_manager_player_id)
+            if not selected_manager:
+                return jsonify({"ok": False, "error": "Selected manager player not found"}), 404
 
-            if team:
-                for pid in team.get("players", []) + team.get("bench", []):
+            if selected_manager_player_id != previous_manager_player_id:
+                conflict = teams.get((Team.manager_player_id == selected_manager_player_id) & (Team.id != team_id))
+                if conflict:
+                    return jsonify({"ok": False, "error": "Selected manager player already belongs to another team"}), 400
+
+                if (selected_manager.get("status") or "").strip().lower() != "unsold":
+                    return jsonify({"ok": False, "error": "Selected manager player is not available"}), 400
+
+                if previous_manager_player_id:
                     players.update(
                         {
                             "status": "unsold",
@@ -469,54 +528,52 @@ def delete_manager():
                             "phase_sold": None,
                             "current_bid": 0,
                             "current_bidder_team_id": None,
-                            "nominated_phase_a": False,
+                            "manager_team_id": None,
                         },
-                        Player.id == pid,
+                        Player.id == previous_manager_player_id,
                     )
-                teams.remove(Team.id == team_id)
 
-            users.remove(User.username == manager_username)
+                players.update(
+                    {
+                        "status": "sold",
+                        "sold_to": team_id,
+                        "sold_price": 0,
+                        "phase_sold": None,
+                        "current_bid": 0,
+                        "current_bidder_team_id": None,
+                        "manager_team_id": team_id,
+                    },
+                    Player.id == selected_manager_player_id,
+                )
 
-        auth_service = current_app.extensions["auth_service"]
-        auth_service.delete_user(manager_username)
-
-        socketio.emit("state_update", auction_service.get_state())
-        return jsonify({"ok": True})
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"ok": False, "error": str(exc)}), 400
-
-
-@admin_bp.post("/update-team")
-@login_required(role=ROLE_ADMIN)
-def update_team():
-    team_id = request.form.get("team_id", "").strip()
-    team_name = request.form.get("team_name", "").strip()
-    manager_tier = request.form.get("manager_tier", "").strip().lower()
-
-    if not team_id:
-        return jsonify({"ok": False, "error": "Missing team id"}), 400
-    if not team_name:
-        return jsonify({"ok": False, "error": "Team name is required"}), 400
-    if manager_tier not in {"silver", "gold", "platinum"}:
-        return jsonify({"ok": False, "error": "Invalid manager tier"}), 400
-
-    try:
-        _ensure_setup_phase()
-        Team = Query()
-        store = current_app.extensions["auction_store"]
-        auction_service = current_app.extensions["auction_service"]
-
-        with store.write() as db:
-            teams = db.table("teams")
-            if not teams.get(Team.id == team_id):
-                return jsonify({"ok": False, "error": "Team not found"}), 404
+            manager_tier = (selected_manager.get("tier") or "silver").strip().lower()
+            manager_speciality = (selected_manager.get("speciality") or "ALL_ROUNDER").strip().upper()
 
             teams.update(
                 {
                     "name": team_name,
                     "manager_tier": manager_tier,
+                    "manager_player_id": selected_manager_player_id,
                 },
                 Team.id == team_id,
+            )
+
+            linked_user = users.get(User.team_id == team_id)
+            if linked_user:
+                linked_username = (linked_user.get("username") or "").strip()
+                users.update(
+                    {
+                        "display_name": team_name,
+                        "speciality": manager_speciality,
+                    },
+                    User.team_id == team_id,
+                )
+
+        if linked_username:
+            auth_service.update_user(
+                current_username=linked_username,
+                new_username=linked_username,
+                display_name=team_name,
             )
 
         auction_service.setup_team_budgets()
@@ -552,7 +609,12 @@ def delete_team():
             if not team:
                 return jsonify({"ok": False, "error": "Team not found"}), 404
 
-            for pid in team.get("players", []) + team.get("bench", []):
+            manager_player_id = (team.get("manager_player_id") or "").strip()
+            all_team_player_ids = team.get("players", []) + team.get("bench", [])
+            if manager_player_id:
+                all_team_player_ids.append(manager_player_id)
+
+            for pid in all_team_player_ids:
                 players.update(
                     {
                         "status": "unsold",
@@ -562,6 +624,7 @@ def delete_team():
                         "current_bid": 0,
                         "current_bidder_team_id": None,
                         "nominated_phase_a": False,
+                        "manager_team_id": None,
                     },
                     Player.id == pid,
                 )
@@ -579,6 +642,35 @@ def delete_team():
 
         socketio.emit("state_update", auction_service.get_state())
         return jsonify({"ok": True})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@admin_bp.post("/set-team-participation")
+@login_required(role=ROLE_ADMIN)
+def set_team_participation():
+    team_id = request.form.get("team_id", "").strip()
+    desired_state = (request.form.get("is_active", "").strip().lower() in {"1", "true", "yes", "on"})
+
+    if not team_id:
+        return jsonify({"ok": False, "error": "Missing team id"}), 400
+
+    try:
+        _ensure_setup_phase()
+        Team = Query()
+        store = current_app.extensions["auction_store"]
+        auction_service = current_app.extensions["auction_service"]
+
+        with store.write() as db:
+            teams = db.table("teams")
+            team = teams.get(Team.id == team_id)
+            if not team:
+                return jsonify({"ok": False, "error": "Team not found"}), 404
+
+            teams.update({"is_active": desired_state}, Team.id == team_id)
+
+        socketio.emit("state_update", auction_service.get_state())
+        return jsonify({"ok": True, "team_id": team_id, "is_active": desired_state})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -750,12 +842,26 @@ def publish_session():
         return jsonify({"ok": False, "error": "Publishing is only allowed after the auction is complete"}), 400
 
     store = current_app.extensions["auction_store"]
+    saved_at = datetime.utcnow().isoformat()
+    raw_tables = store.export_tables()
+
+    global_sync = {}
+    global_league_service = current_app.extensions.get("global_league_service")
+    if global_league_service:
+        synced_tables, global_sync = global_league_service.apply_global_ids(
+            slug,
+            raw_tables,
+            published_at=saved_at,
+        )
+    else:
+        synced_tables = raw_tables
+
     payload = {
         "session_name": requested_name or slug,
         "session_link_suffix": slug,
-        "saved_at": datetime.utcnow().isoformat(),
+        "saved_at": saved_at,
         "published": True,
-        "tables": store.export_tables(),
+        "tables": synced_tables,
     }
     file_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -811,6 +917,7 @@ def publish_session():
             "file": file_path.name,
             "overwritten": existed,
             "public_path": url_for("viewer.published_view", slug=slug),
+            "global_sync": global_sync,
         }
     )
 

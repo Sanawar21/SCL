@@ -21,6 +21,8 @@ const scorerForm = document.getElementById("scorerForm");
 const scorerStatus = document.getElementById("scorerStatus");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
+const teamManagerOptionsNode = document.getElementById("teamManagerOptions");
+const teamManagerOptions = teamManagerOptionsNode ? JSON.parse(teamManagerOptionsNode.textContent || "{}") : {};
 
 function wireDeleteBidButtons() {
   document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
@@ -114,6 +116,34 @@ function specialityOptionsHtml(selected) {
     .join("");
 }
 
+function managerPlayerOptionsHtml(teamId, selectedPlayerId) {
+  const options = Array.isArray(teamManagerOptions[teamId]) ? teamManagerOptions[teamId] : [];
+  const safeSelected = selectedPlayerId || "";
+
+  const optionRows = options
+    .map((item) => {
+      const playerId = String(item.id || "").trim();
+      if (!playerId) {
+        return "";
+      }
+      const tier = String(item.tier || "").trim();
+      const speciality = String(item.speciality || "-").trim().replace(/_/g, " ");
+      const label = `${item.name || "Unknown"} (${tier || "-"}, ${speciality || "-"})`;
+      return `<option value="${escapeHtml(playerId)}" ${playerId === safeSelected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    })
+    .join("");
+
+  return optionRows || `<option value="${escapeHtml(safeSelected)}" selected>${escapeHtml(safeSelected || "Current manager")}</option>`;
+}
+
+function titleCaseTier(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) {
+    return "-";
+  }
+  return `${text[0].toUpperCase()}${text.slice(1)}`;
+}
+
 function startInlineEdit(row, html) {
   if (!row || row.dataset.inlineEditing === "true") {
     return;
@@ -165,30 +195,6 @@ function startPlayerInlineEdit(btn) {
   );
 }
 
-function startManagerInlineEdit(btn) {
-  const row = btn.closest("tr");
-  if (!row) {
-    return;
-  }
-  const cells = row.querySelectorAll("td");
-  const username = btn.getAttribute("data-username") || "";
-  const displayName = btn.getAttribute("data-display-name") || "";
-  const speciality = btn.getAttribute("data-speciality") || "ALL_ROUNDER";
-  const team = cells[3]?.textContent?.trim() || "";
-
-  startInlineEdit(
-    row,
-    `<td><input class="inline-manager-username" value="${escapeHtml(username)}"></td>
-     <td><input class="inline-manager-display-name" value="${escapeHtml(displayName)}"></td>
-     <td><select class="inline-manager-speciality">${specialityOptionsHtml(speciality)}</select></td>
-     <td>${escapeHtml(team)}</td>
-     <td>
-       <button class="btn save-manager-inline" type="button" data-manager-username="${escapeHtml(username)}">Save</button>
-       <button class="btn btn-outline cancel-inline" type="button">Cancel</button>
-     </td>`
-  );
-}
-
 function startTeamInlineEdit(btn) {
   const row = btn.closest("tr");
   if (!row) {
@@ -198,15 +204,18 @@ function startTeamInlineEdit(btn) {
   const teamId = btn.getAttribute("data-team-id") || "";
   const teamName = btn.getAttribute("data-team-name") || "";
   const managerTier = btn.getAttribute("data-manager-tier") || "silver";
+  const managerPlayerId = btn.getAttribute("data-manager-player-id") || "";
   const manager = cells[1]?.textContent?.trim() || "";
   const managerSpeciality = cells[2]?.textContent?.trim() || "-";
+  const managerPlayer = cells[4]?.textContent?.trim() || "-";
 
   startInlineEdit(
     row,
     `<td><input class="inline-team-name" value="${escapeHtml(teamName)}"></td>
      <td>${escapeHtml(manager)}</td>
       <td>${escapeHtml(managerSpeciality)}</td>
-     <td><select class="inline-team-tier">${tierOptionsHtml(managerTier)}</select></td>
+    <td>${escapeHtml(titleCaseTier(managerTier))}</td>
+     <td><select class="inline-team-manager-player">${managerPlayerOptionsHtml(teamId, managerPlayerId || (managerPlayer !== "-" ? managerPlayer : ""))}</select></td>
      <td>
        <button class="btn save-team-inline" type="button" data-team-id="${escapeHtml(teamId)}">Save</button>
        <button class="btn btn-outline cancel-inline" type="button">Cancel</button>
@@ -223,7 +232,7 @@ if (managerForm) {
     const data = new FormData(managerForm);
     const res = await postForm("/auction/admin/create-manager", data);
     credResult.textContent = res.ok
-      ? `Credentials created. Temporary password for team ${res.team_id}: ${res.temporary_password}`
+      ? `Team account created (${res.username}). Temporary password: ${res.temporary_password}`
       : `Error: ${res.error}`;
     if (res.ok) {
       managerForm.reset();
@@ -438,53 +447,28 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (btn.classList.contains("edit-manager-btn")) {
+  if (btn.classList.contains("toggle-team-participation-btn")) {
     if (!ensureSetupPhase()) {
       return;
     }
-    startManagerInlineEdit(btn);
-    return;
-  }
+    const teamId = btn.getAttribute("data-team-id") || "";
+    const teamName = btn.getAttribute("data-team-name") || "this team";
+    const currentlyActive = (btn.getAttribute("data-is-active") || "true").toLowerCase() === "true";
+    const nextActive = !currentlyActive;
 
-  if (btn.classList.contains("save-manager-inline")) {
-    const row = btn.closest("tr");
-    const managerUsername = btn.getAttribute("data-manager-username") || "";
-    const username = row?.querySelector(".inline-manager-username")?.value?.trim() || "";
-    const displayName = row?.querySelector(".inline-manager-display-name")?.value?.trim() || "";
-    const speciality = row?.querySelector(".inline-manager-speciality")?.value || "";
-    if (!username || !displayName) {
-      alert("Username and display name are required");
+    const prompt = nextActive
+      ? `Include ${teamName} in auction participation?`
+      : `Exclude ${teamName} from auction participation? Team will remain in the database.`;
+    if (!confirm(prompt)) {
       return;
     }
 
     const fd = new FormData();
-    fd.append("manager_username", managerUsername);
-    fd.append("username", username);
-    fd.append("display_name", displayName);
-    fd.append("speciality", speciality);
-    const res = await postForm("/auction/admin/update-manager", fd);
+    fd.append("team_id", teamId);
+    fd.append("is_active", nextActive ? "true" : "false");
+    const res = await postForm("/auction/admin/set-team-participation", fd);
     if (!res.ok) {
-      alert(res.error || "Unable to update manager");
-      return;
-    }
-    window.location.reload();
-    return;
-  }
-
-  if (btn.classList.contains("delete-manager-btn")) {
-    if (!ensureSetupPhase()) {
-      return;
-    }
-    const managerUsername = btn.getAttribute("data-username") || "";
-    if (!confirm(`Delete manager ${managerUsername} and linked team?`)) {
-      return;
-    }
-
-    const fd = new FormData();
-    fd.append("manager_username", managerUsername);
-    const res = await postForm("/auction/admin/delete-manager", fd);
-    if (!res.ok) {
-      alert(res.error || "Unable to delete manager");
+      alert(res.error || "Unable to update team participation");
       return;
     }
     window.location.reload();
@@ -503,16 +487,20 @@ document.addEventListener("click", async (event) => {
     const row = btn.closest("tr");
     const teamId = btn.getAttribute("data-team-id") || "";
     const teamName = row?.querySelector(".inline-team-name")?.value?.trim() || "";
-    const managerTier = row?.querySelector(".inline-team-tier")?.value || "";
+    const managerPlayerId = row?.querySelector(".inline-team-manager-player")?.value || "";
     if (!teamName) {
       alert("Team name is required");
+      return;
+    }
+    if (!managerPlayerId) {
+      alert("Manager player is required");
       return;
     }
 
     const fd = new FormData();
     fd.append("team_id", teamId);
     fd.append("team_name", teamName);
-    fd.append("manager_tier", managerTier);
+    fd.append("manager_player_id", managerPlayerId);
     const res = await postForm("/auction/admin/update-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update team");

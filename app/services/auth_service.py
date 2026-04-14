@@ -1,4 +1,5 @@
 import secrets
+import re
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.rules import ROLE_ADMIN, ROLE_MANAGER
@@ -7,6 +8,11 @@ from app.rules import ROLE_ADMIN, ROLE_MANAGER
 class AuthService:
     def __init__(self, auth_store):
         self.auth_store = auth_store
+
+    @staticmethod
+    def _generate_temporary_password(length: int = 14):
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+        return "".join(secrets.choice(alphabet) for _ in range(length))
 
     def seed_admin_if_missing(self):
         with self.auth_store.write() as db:
@@ -55,7 +61,7 @@ class AuthService:
             }
 
     def create_manager_credentials(self, username: str, display_name: str):
-        temp_password = "password123"  # TODO: Remove this
+        temp_password = self._generate_temporary_password()
         safe_username = (username or "").strip()
         safe_display_name = (display_name or "").strip() or safe_username
 
@@ -74,6 +80,56 @@ class AuthService:
             )
 
         return {"temporary_password": temp_password}
+
+    @staticmethod
+    def _team_username_base(team_name: str):
+        base = re.sub(r"[^a-z0-9]+", "-", (team_name or "").strip().lower())
+        base = base.strip("-")
+        return base or "team"
+
+    def suggest_team_username(self, team_name: str, except_username: str | None = None):
+        except_name = (except_username or "").strip() or None
+        base = self._team_username_base(team_name)
+
+        with self.auth_store.read() as db:
+            users = db.table("auth_users")
+            usernames = {
+                (row.get("username") or "").strip()
+                for row in users.all()
+                if (row.get("username") or "").strip()
+            }
+
+        if except_name:
+            usernames.discard(except_name)
+
+        candidate = base
+        suffix = 2
+        while candidate in usernames:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
+    def create_team_credentials(self, team_name: str, display_name: str | None = None):
+        temp_password = self._generate_temporary_password()
+        safe_team_name = (team_name or "").strip()
+        safe_display_name = (display_name or "").strip() or safe_team_name or "Team"
+        username = self.suggest_team_username(safe_team_name)
+
+        with self.auth_store.write() as db:
+            users = db.table("auth_users")
+            if users.get(lambda u: u.get("username") == username):
+                raise ValueError("Username already exists")
+
+            users.insert(
+                {
+                    "username": username,
+                    "password_hash": generate_password_hash(temp_password),
+                    "role": ROLE_MANAGER,
+                    "display_name": safe_display_name,
+                }
+            )
+
+        return {"username": username, "temporary_password": temp_password}
 
     def update_user(self, current_username: str, new_username: str, display_name: str):
         safe_current = (current_username or "").strip()

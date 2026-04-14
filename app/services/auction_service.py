@@ -23,6 +23,11 @@ class AuctionService:
     def __init__(self, store):
         self.store = store
 
+    @staticmethod
+    def _team_participates(team: dict) -> bool:
+        # Teams created before this flag existed are considered participating.
+        return bool(team.get("is_active", True))
+
     def _build_state_from_data(self, meta, teams, users, players, bids, bid_limit=25):
         def format_bid_time(ts: str):
             try:
@@ -68,9 +73,11 @@ class AuctionService:
                 current_player = {**current_player}
                 current_player["current_bidder_team_name"] = bidder_team.get("name") if bidder_team else "-"
 
+        participating_teams = [t for t in teams if self._team_participates(t)]
+
         incomplete_fill_needed = sum(
             max(0, REQUIRED_ACTIVE_PLAYERS - len(t.get("players", [])))
-            for t in teams
+            for t in participating_teams
             if len(t.get("players", [])) < REQUIRED_ACTIVE_PLAYERS
         )
         unsold_players = sum(1 for p in players if p.get("status") == "unsold")
@@ -80,6 +87,7 @@ class AuctionService:
         prefix_map = {"gold": "(G)", "silver": "(S)", "platinum": "(P)"}
         for team in teams:
             manager_user = users_by_team_id.get(team["id"])
+            manager_player = players_by_id.get(team.get("manager_player_id")) if team.get("manager_player_id") else None
             player_labels = [
                 f"{prefix_map.get(players_by_id[pid].get('tier'), '')} {players_by_id[pid]['name']}".strip()
                 for pid in team.get("players", [])
@@ -93,12 +101,17 @@ class AuctionService:
             enriched_teams.append(
                 {
                     **team,
+                    "is_active": self._team_participates(team),
                     "manager_name": (
-                        f"{prefix_map.get(team.get('manager_tier'), '')} {manager_user.get('display_name', manager_user.get('username', '-'))}".strip()
-                        if manager_user
+                        f"{prefix_map.get(team.get('manager_tier'), '')} {manager_player.get('name', '-') if manager_player else manager_user.get('display_name', manager_user.get('username', '-'))}".strip()
+                        if manager_player or manager_user
                         else "-"
                     ),
-                    "manager_speciality": manager_user.get("speciality", "-") if manager_user else "-",
+                    "manager_speciality": (
+                        manager_player.get("speciality", "-")
+                        if manager_player
+                        else (manager_user.get("speciality", "-") if manager_user else "-")
+                    ),
                     "player_labels": player_labels,
                     "bench_labels": bench_labels,
                 }
@@ -114,6 +127,7 @@ class AuctionService:
                     "display_name": m.get("display_name", m.get("username", "")),
                     "speciality": m.get("speciality", "-"),
                     "team_id": m.get("team_id"),
+                    "manager_player_id": teams_by_id.get(m.get("team_id"), {}).get("manager_player_id"),
                     "team_name": teams_by_id.get(m.get("team_id"), {}).get("name", "-"),
                 }
                 for m in users
@@ -136,6 +150,7 @@ class AuctionService:
             "public_budget_board": [
                 {
                     "team_name": t["name"],
+                    "is_active": self._team_participates(t),
                     "purse_remaining": t.get("purse_remaining"),
                     "credits_remaining": t.get("credits_remaining"),
                     "active_count": len(t.get("players", [])),
@@ -216,6 +231,12 @@ class AuctionService:
             for b in bids_table.all():
                 if "id" not in b:
                     bids_table.update({"id": secrets.token_hex(8)}, doc_ids=[b.doc_id])
+
+            Team = Query()
+            teams_table = db.table("teams")
+            for team in teams_table.all():
+                if "is_active" not in team:
+                    teams_table.update({"is_active": True}, Team.id == team["id"])
             db.table("meta").update(meta, doc_ids=[1])
 
     def setup_team_budgets(self):
@@ -425,6 +446,8 @@ class AuctionService:
             team = teams_table.get(Team.id == team_id)
             if not team:
                 raise ValueError("Invalid team")
+            if not self._team_participates(team):
+                raise ValueError("This team is excluded from auction participation")
 
             if phase == PHASE_B and len(team.get("players", [])) < REQUIRED_ACTIVE_PLAYERS:
                 raise ValueError("Incomplete teams cannot participate in Phase B")
@@ -464,11 +487,17 @@ class AuctionService:
             return players_table.get(Player.id == player_id)
 
     def pass_current(self, team_id: str):
+        Team = Query()
         with self.store.write() as db:
             meta = self._get_meta(db)
             player_id = meta.get("current_player_id")
             if not player_id:
                 raise ValueError("No active player")
+            team = db.table("teams").get(Team.id == team_id)
+            if not team:
+                raise ValueError("Invalid team")
+            if not self._team_participates(team):
+                raise ValueError("This team is excluded from auction participation")
             db.table("bids").insert(
                 {
                     "id": secrets.token_hex(8),
@@ -592,6 +621,8 @@ class AuctionService:
             unsold = [p for p in players.all() if p.get("status") == "unsold"]
 
             for team in teams.all():
+                if not self._team_participates(team):
+                    continue
                 if len(team.get("players", [])) >= REQUIRED_ACTIVE_PLAYERS:
                     continue
 
@@ -646,6 +677,8 @@ class AuctionService:
             to_team = teams_table.get(Team.id == to_team_id)
             if not from_team or not to_team:
                 raise ValueError("Invalid teams for trade")
+            if not self._team_participates(from_team) or not self._team_participates(to_team):
+                raise ValueError("Inactive teams cannot trade")
 
             from_players = list(from_team.get("players", []))
             to_players = list(to_team.get("players", []))
@@ -731,6 +764,8 @@ class AuctionService:
             to_team = teams_table.get(Team.id == to_team_id)
             if not from_team or not to_team:
                 raise ValueError("Teams no longer available")
+            if not self._team_participates(from_team) or not self._team_participates(to_team):
+                raise ValueError("Inactive teams cannot trade")
 
             from_players = list(from_team.get("players", []))
             to_players = list(to_team.get("players", []))

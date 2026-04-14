@@ -6,8 +6,8 @@ Mobile-first Flask + TinyDB auction dashboard for Small Cricket League.
 
 - TinyDB storage with process-wide thread-safe lock for all reads/writes.
 - Roles:
-  - Administrator: setup/control auction, create manager credentials, manage phases.
-  - Manager: login and bid with quick action buttons.
+  - Administrator: setup/control auction, create team credentials, manage phases.
+  - Team account: login and bid with quick action buttons.
   - Viewer: public live board without credentials.
 - Public visibility of purse remaining and credits remaining.
 - Auction rules enforced:
@@ -35,7 +35,7 @@ Mobile-first Flask + TinyDB auction dashboard for Small Cricket League.
 3. Open:
 
 - Viewer live: /viewer/live
-- Manager login: /manager/login
+- Team account login: /manager/login
 - Admin login: /admin/login
 
 Default admin credentials:
@@ -46,9 +46,9 @@ Default admin credentials:
 ## Quick start flow
 
 1. Login as admin.
-2. Create managers from Admin Control Room.
+2. Create teams from Admin Control Room by selecting existing players as managers.
 3. Set phase and nominate players.
-4. Managers place bids.
+4. Team accounts place bids.
 5. During break phase, managers can submit trades/transfers.
 6. Close lot from admin when ready.
 7. Move to Phase B and continue unsold pool purchases at 200.

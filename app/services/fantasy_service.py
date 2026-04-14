@@ -259,24 +259,40 @@ class FantasyService:
         }
 
         players = []
+        players_by_id = {}
         for player in tables.get("players", []):
             tier = (player.get("tier") or "").strip().lower()
-            players.append(
-                {
-                    "id": player.get("id"),
-                    "name": player.get("name") or "Unknown",
-                    "tier": tier,
-                    "speciality": (player.get("speciality") or "-").strip() or "-",
-                    "credits": TIER_CREDIT_COST.get(tier, 0),
-                    "auction_team_id": player.get("sold_to"),
-                    "auction_team_name": teams_by_id.get(player.get("sold_to")) or "-",
-                    "selection_type": "player",
-                }
-            )
+            item = {
+                "id": player.get("id"),
+                "name": player.get("name") or "Unknown",
+                "tier": tier,
+                "speciality": (player.get("speciality") or "-").strip() or "-",
+                "credits": TIER_CREDIT_COST.get(tier, 0),
+                "auction_team_id": player.get("sold_to"),
+                "auction_team_name": teams_by_id.get(player.get("sold_to")) or "-",
+                "selection_type": "player",
+            }
+            players.append(item)
+            safe_player_id = (item.get("id") or "").strip()
+            if safe_player_id:
+                players_by_id[safe_player_id] = item
 
         for team in tables.get("teams", []):
             manager_username = (team.get("manager_username") or "").strip()
-            if not manager_username:
+            manager_player_id = (team.get("manager_player_id") or "").strip()
+
+            if manager_player_id and manager_player_id in players_by_id:
+                manager_item = players_by_id[manager_player_id]
+                manager_item["selection_type"] = "manager"
+                manager_item["auction_team_id"] = manager_item.get("auction_team_id") or team.get("id")
+                manager_item["auction_team_name"] = (
+                    manager_item.get("auction_team_name")
+                    if manager_item.get("auction_team_name") and manager_item.get("auction_team_name") != "-"
+                    else (team.get("name") or "-")
+                )
+                continue
+
+            if not manager_username and not manager_player_id:
                 continue
 
             manager_user = users_by_username.get(manager_username, {})
@@ -287,7 +303,7 @@ class FantasyService:
 
             players.append(
                 {
-                    "id": f"manager::{manager_username.lower()}",
+                    "id": manager_player_id or f"manager::{manager_username.lower()}",
                     "name": manager_name,
                     "tier": manager_tier,
                     "speciality": (manager_user.get("speciality") or team.get("speciality") or "-").strip() or "-",
@@ -329,23 +345,6 @@ class FantasyService:
     def _eligible_lookup(self, season_slug: str):
         tables = self._load_season_tables(season_slug)
         lookup = {}
-
-        for user in tables.get("users", []):
-            if user.get("role") != "manager":
-                continue
-            username = (user.get("username") or "").strip()
-            display_name = (user.get("display_name") or username).strip()
-            if not username:
-                continue
-
-            canonical = f"manager:{self._normalize(username)}"
-            for alias in {username, display_name}:
-                normalized_alias = self._normalize(alias)
-                if normalized_alias:
-                    lookup[normalized_alias] = {
-                        "entrant_key": canonical,
-                        "entrant_display_name": display_name,
-                    }
 
         for player in tables.get("players", []):
             name = (player.get("name") or "").strip()

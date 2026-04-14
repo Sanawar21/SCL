@@ -152,11 +152,11 @@
   </div>
 
   <div class="card">
-    <h3>Setup: Managers</h3>
+    <h3>Setup: Team Accounts</h3>
     <div class="table-wrap">
       <table id="managerTable">
         <thead>
-          <tr><th>Username</th><th>Name</th><th>Speciality</th><th>Team</th><th>Action</th></tr>
+          <tr><th>Username</th><th>Name</th><th>Speciality</th><th>Team</th></tr>
         </thead>
         <tbody>
         {% for m in state.managers %}
@@ -165,22 +165,6 @@
             <td>{{ m.display_name }}</td>
             <td>{{ (m.speciality or '-')|replace('_', ' ')|title }}</td>
             <td>{{ m.team_name or '-' }}</td>
-            <td>
-              <button
-                class="btn btn-outline edit-manager-btn"
-                type="button"
-                data-username="{{ m.username }}"
-                data-display-name="{{ m.display_name }}"
-                data-speciality="{{ m.speciality or 'ALL_ROUNDER' }}"
-                {% if state.phase != 'setup' %}disabled{% endif %}
-              >Edit</button>
-              <button
-                class="btn btn-danger delete-manager-btn"
-                type="button"
-                data-username="{{ m.username }}"
-                {% if state.phase != 'setup' %}disabled{% endif %}
-              >Delete</button>
-            </td>
           </tr>
         {% endfor %}
         </tbody>

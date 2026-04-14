@@ -1,13 +1,10 @@
-import json
 import secrets
+import sqlite3
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from tinydb import Query
-
 from app.rules import TIER_CREDIT_COST, TOTAL_CREDITS
-from app.session_files import resolve_session_file
 
 
 class FantasyService:
@@ -15,295 +12,316 @@ class FantasyService:
         self.global_store = global_store
         self.published_dir = Path(published_dir)
         self.season_store_manager = season_store_manager
+        self._db_path = getattr(getattr(global_store, "db", None), "path", None)
 
-    def _load_published_payload(self, slug: str):
+    def _connect(self):
+        if not self._db_path:
+            raise RuntimeError("Fantasy database path is not configured")
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @staticmethod
+    def _parse_metadata(raw_value):
+        if not raw_value:
+            return {}
+        try:
+            import json
+
+            parsed = json.loads(raw_value)
+        except Exception:  # noqa: BLE001
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _dump_metadata(payload):
+        import json
+
+        return json.dumps(payload or {}, ensure_ascii=True)
+
+    def _season_row(self, conn: sqlite3.Connection, slug: str):
         safe_slug = (slug or "").strip().lower()
         if not safe_slug:
-            raise ValueError("Missing season slug")
-        file_path = resolve_session_file(self.published_dir, f"{safe_slug}.json")
-        if not file_path.exists():
+            return None
+        return conn.execute(
+            """
+            SELECT id, slug, name, created_at, published_at, metadata_json
+            FROM seasons
+            WHERE slug = ? OR id = ?
+            LIMIT 1
+            """,
+            (safe_slug, safe_slug),
+        ).fetchone()
+
+    def _season_metadata(self, season_row):
+        return self._parse_metadata(season_row["metadata_json"]) if season_row else {}
+
+    def _published_auction(self, conn: sqlite3.Connection, season_slug: str):
+        safe_slug = (season_slug or "").strip().lower()
+        return conn.execute(
+            """
+            SELECT a.id,
+                   a.season_id,
+                   a.saved_at,
+                   a.created_at,
+                   s.slug,
+                   s.name,
+                   s.published_at,
+                   s.metadata_json AS season_metadata_json
+            FROM auctions a
+            JOIN seasons s ON s.id = a.season_id
+            WHERE a.status = 'published'
+              AND (s.slug = ? OR s.id = ?)
+            ORDER BY COALESCE(a.saved_at, '') DESC, COALESCE(a.created_at, '') DESC, a.id DESC
+            LIMIT 1
+            """,
+            (safe_slug, safe_slug),
+        ).fetchone()
+
+    def _require_published_auction(self, conn: sqlite3.Connection, season_slug: str):
+        row = self._published_auction(conn, season_slug)
+        if not row:
             raise ValueError("Published season does not exist")
-        payload = json.loads(file_path.read_text(encoding="utf-8"))
-        if not isinstance(payload.get("tables"), dict):
-            raise ValueError("Published season is invalid")
-        return payload
+        return row
 
-    def _ensure_season_store(self, slug: str):
-        safe_slug = (slug or "").strip().lower()
-        if self.season_store_manager.has_season(safe_slug):
-            return self.season_store_manager.get_store(safe_slug, create=False)
+    def _entry_count(self, conn: sqlite3.Connection, season_slug: str):
+        safe_slug = (season_slug or "").strip().lower()
+        row = conn.execute(
+            "SELECT COUNT(*) AS count FROM fantasy_teams WHERE season_id = ?",
+            (safe_slug,),
+        ).fetchone()
+        return int(row["count"] if row else 0)
 
-        payload = self._load_published_payload(safe_slug)
-        store = self.season_store_manager.get_store(safe_slug, create=True)
-        tables_payload = {
-            table_name: rows
-            for table_name, rows in (payload.get("tables") or {}).items()
-            if table_name != "bids"
+    def _season_payload(self, conn: sqlite3.Connection, season_row):
+        if not season_row:
+            return None
+        slug = (season_row["slug"] or season_row["id"] or "").strip().lower()
+        metadata = self._season_metadata(season_row)
+        entry_count = self._entry_count(conn, slug)
+        return {
+            "id": slug,
+            "slug": slug,
+            "name": (season_row["name"] or slug),
+            "published_slug": slug,
+            "submissions_open": bool(metadata.get("submissions_open", False)),
+            "created_at": metadata.get("fantasy_created_at") or season_row["created_at"] or "",
+            "entry_count": entry_count,
         }
-        store.import_tables(tables_payload)
-
-        with store.write() as db:
-            meta_table = db.table("season_meta")
-            meta_payload = {
-                "slug": safe_slug,
-                "name": payload.get("session_name") or safe_slug,
-                "published": bool(payload.get("published", True)),
-                "published_file": f"{safe_slug}.json",
-                "published_at": payload.get("saved_at") or datetime.utcnow().isoformat(),
-                "created_at": datetime.utcnow().isoformat(),
-                "submissions_open": False,
-            }
-            if meta_table.get(doc_id=1):
-                meta_table.update(meta_payload, doc_ids=[1])
-            else:
-                meta_table.insert(meta_payload)
-
-        return store
-
-    def _get_store_if_exists(self, slug: str):
-        safe_slug = (slug or "").strip().lower()
-        if not self.season_store_manager.has_season(safe_slug):
-            return None
-        return self.season_store_manager.get_store(safe_slug, create=False)
-
-    def _load_season_tables(self, slug: str):
-        store = self._get_store_if_exists(slug)
-        if store:
-            tables = store.export_tables()
-            if isinstance(tables, dict) and tables.get("players") and tables.get("teams"):
-                return tables
-
-        payload = self._load_published_payload(slug)
-        return payload.get("tables") or {}
-
-    def _get_season_meta(self, slug: str):
-        store = self._get_store_if_exists(slug)
-        if not store:
-            return None
-        with store.read() as db:
-            return db.table("season_meta").get(doc_id=1)
-
-    def _get_enabled_season_store(self, slug: str):
-        safe_slug = (slug or "").strip().lower()
-        store = self._get_store_if_exists(safe_slug)
-        if not store:
-            raise ValueError("Fantasy season not found")
-
-        return store
 
     def list_published_sessions(self):
-        sessions_by_slug = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.slug,
+                       s.name,
+                       a.saved_at,
+                       s.published_at,
+                       a.id AS auction_id
+                FROM seasons s
+                JOIN auctions a ON a.season_id = s.id
+                WHERE a.status = 'published'
+                ORDER BY COALESCE(a.saved_at, s.published_at, '') DESC, a.id DESC
+                """
+            ).fetchall()
 
-        for season_slug in self.season_store_manager.list_slugs():
-            meta = self._get_season_meta(season_slug) or {}
-            sessions_by_slug[season_slug] = {
-                "slug": season_slug,
-                "name": meta.get("name") or season_slug,
-                "published_at": meta.get("published_at"),
-            }
-
-        if self.published_dir.exists():
-            for file_path in sorted(self.published_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-                slug = file_path.stem
-                if slug in sessions_by_slug:
-                    continue
-                try:
-                    payload = json.loads(file_path.read_text(encoding="utf-8"))
-                except Exception:  # noqa: BLE001
-                    continue
-                sessions_by_slug[slug] = {
+        sessions = []
+        seen = set()
+        for row in rows:
+            slug = (row["slug"] or "").strip().lower()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            sessions.append(
+                {
                     "slug": slug,
-                    "name": payload.get("session_name") or slug,
-                    "published_at": payload.get("saved_at"),
+                    "name": (row["name"] or slug),
+                    "published_at": row["saved_at"] or row["published_at"],
                 }
-
-        sessions = list(sessions_by_slug.values())
-        sessions.sort(key=lambda item: item.get("published_at") or "", reverse=True)
+            )
         return sessions
 
     def list_fantasy_seasons(self):
-        seasons = []
-        for season_slug in self.season_store_manager.list_slugs():
-            store = self._get_store_if_exists(season_slug)
-            if not store:
-                continue
-
-            with store.read() as db:
-                meta = db.table("season_meta").get(doc_id=1) or {}
-                entry_count = len(db.table("fantasy_entries"))
-
-            seasons.append(
-                {
-                    "id": meta.get("slug") or season_slug,
-                    "slug": season_slug,
-                    "name": meta.get("name") or season_slug,
-                    "published_slug": season_slug,
-                    "submissions_open": bool(meta.get("submissions_open", False)),
-                    "created_at": meta.get("created_at") or "",
-                    "entry_count": entry_count,
-                }
-            )
-
+        published = self.list_published_sessions()
+        with self._connect() as conn:
+            seasons = []
+            for item in published:
+                season_row = self._season_row(conn, item["slug"])
+                payload = self._season_payload(conn, season_row)
+                if payload:
+                    seasons.append(payload)
         seasons.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return seasons
 
     def get_season(self, slug: str):
         safe_slug = (slug or "").strip().lower()
-        store = self._get_store_if_exists(safe_slug)
-        if not store:
-            return None
-
-        with store.read() as db:
-            meta = db.table("season_meta").get(doc_id=1) or {}
-
-        with store.read() as db:
-            entry_count = len(db.table("fantasy_entries"))
-
-        return {
-            "id": meta.get("slug") or safe_slug,
-            "slug": safe_slug,
-            "name": meta.get("name") or safe_slug,
-            "published_slug": safe_slug,
-            "submissions_open": bool(meta.get("submissions_open", False)),
-            "created_at": meta.get("created_at") or "",
-            "entry_count": entry_count,
-        }
+        with self._connect() as conn:
+            if not self._published_auction(conn, safe_slug):
+                return None
+            season_row = self._season_row(conn, safe_slug)
+            return self._season_payload(conn, season_row)
 
     def create_fantasy_season(self, published_slug: str, name: str = ""):
         safe_slug = (published_slug or "").strip().lower()
         if not safe_slug:
             raise ValueError("Published season slug is required")
 
-        store = self._ensure_season_store(safe_slug)
-        published_payload = None
         display_name = (name or "").strip()
 
-        if not display_name:
-            try:
-                published_payload = self._load_published_payload(safe_slug)
-            except Exception:  # noqa: BLE001
-                published_payload = None
+        with self._connect() as conn:
+            published = self._require_published_auction(conn, safe_slug)
+            season_row = self._season_row(conn, safe_slug)
+            if not season_row:
+                raise ValueError("Published season does not exist")
 
-        with store.write() as db:
-            meta_table = db.table("season_meta")
-            existing_meta = meta_table.get(doc_id=1) or {}
+            metadata = self._season_metadata(season_row)
+            metadata["submissions_open"] = True
+            metadata.setdefault("fantasy_created_at", datetime.utcnow().isoformat())
 
-            final_name = (
-                display_name
-                or existing_meta.get("name")
-                or (published_payload or {}).get("session_name")
-                or safe_slug
+            final_name = display_name or season_row["name"] or safe_slug
+
+            conn.execute(
+                """
+                UPDATE seasons
+                SET name = ?,
+                    metadata_json = ?
+                WHERE id = ?
+                """,
+                (final_name, self._dump_metadata(metadata), season_row["id"]),
             )
+            conn.commit()
 
-            season_meta = {
+            return {
+                "id": safe_slug,
                 "slug": safe_slug,
                 "name": final_name,
-                "published": True,
-                "published_file": existing_meta.get("published_file") or f"{safe_slug}.json",
-                "published_at": existing_meta.get("published_at") or (published_payload or {}).get("saved_at") or datetime.utcnow().isoformat(),
-                "created_at": existing_meta.get("created_at") or datetime.utcnow().isoformat(),
+                "published_slug": safe_slug,
                 "submissions_open": True,
+                "created_at": metadata.get("fantasy_created_at") or season_row["created_at"] or datetime.utcnow().isoformat(),
+                "entry_count": self._entry_count(conn, published["season_id"]),
             }
 
-            if meta_table.get(doc_id=1):
-                meta_table.update(season_meta, doc_ids=[1])
-            else:
-                meta_table.insert(season_meta)
-
-        return {
-            "id": safe_slug,
-            "slug": safe_slug,
-            "name": final_name,
-            "published_slug": safe_slug,
-            "submissions_open": True,
-            "created_at": season_meta["created_at"],
-            "entry_count": 0,
-        }
-
     def set_submissions_open(self, season_slug: str, is_open: bool):
-        store = self._get_enabled_season_store(season_slug)
-
-        with store.write() as db:
-            meta_table = db.table("season_meta")
-            meta = meta_table.get(doc_id=1)
-            if not meta:
+        safe_slug = (season_slug or "").strip().lower()
+        with self._connect() as conn:
+            if not self._published_auction(conn, safe_slug):
                 raise ValueError("Fantasy season not found")
-            meta_table.update({"submissions_open": bool(is_open)}, doc_ids=[1])
+            season_row = self._season_row(conn, safe_slug)
+            if not season_row:
+                raise ValueError("Fantasy season not found")
+            metadata = self._season_metadata(season_row)
+            metadata["submissions_open"] = bool(is_open)
+            metadata.setdefault("fantasy_created_at", datetime.utcnow().isoformat())
+            conn.execute(
+                """
+                UPDATE seasons
+                SET metadata_json = ?
+                WHERE id = ?
+                """,
+                (self._dump_metadata(metadata), season_row["id"]),
+            )
+            conn.commit()
 
     def delete_entry(self, season_slug: str, entry_id: str):
+        safe_slug = (season_slug or "").strip().lower()
         safe_entry_id = (entry_id or "").strip()
         if not safe_entry_id:
             raise ValueError("Missing entry id")
 
-        store = self._get_enabled_season_store(season_slug)
-        with store.write() as db:
-            Entry = Query()
-            entries = db.table("fantasy_entries")
-            if not entries.get(Entry.id == safe_entry_id):
+        with self._connect() as conn:
+            if not self._published_auction(conn, safe_slug):
+                raise ValueError("Fantasy season not found")
+
+            existing = conn.execute(
+                """
+                SELECT id
+                FROM fantasy_teams
+                WHERE id = ? AND season_id = ?
+                LIMIT 1
+                """,
+                (safe_entry_id, safe_slug),
+            ).fetchone()
+            if not existing:
                 raise ValueError("Fantasy entry not found")
-            entries.remove(Entry.id == safe_entry_id)
+
+            conn.execute("DELETE FROM fantasy_team_picks WHERE fantasy_team_id = ?", (safe_entry_id,))
+            conn.execute("DELETE FROM fantasy_teams WHERE id = ?", (safe_entry_id,))
+            conn.commit()
 
     def _season_players(self, season_slug: str):
-        tables = self._load_season_tables(season_slug)
+        safe_slug = (season_slug or "").strip().lower()
+        with self._connect() as conn:
+            auction = self._require_published_auction(conn, safe_slug)
+            auction_id = auction["id"]
 
-        users_by_username = {
-            (user.get("username") or "").strip(): user
-            for user in tables.get("users", [])
-            if (user.get("username") or "").strip()
-        }
+            player_rows = conn.execute(
+                """
+                SELECT ap.player_id,
+                       ap.sold_to_team_id,
+                       p.display_name,
+                       p.tier,
+                       p.speciality,
+                       t.name AS team_name
+                FROM auction_players ap
+                JOIN players p ON p.id = ap.player_id
+                LEFT JOIN teams t ON t.id = ap.sold_to_team_id
+                WHERE ap.auction_id = ?
+                  AND COALESCE(p.is_manager, 0) = 0
+                ORDER BY LOWER(COALESCE(p.display_name, '')) ASC
+                """,
+                (auction_id,),
+            ).fetchall()
 
-        teams_by_id = {
-            team.get("id"): team.get("name")
-            for team in tables.get("teams", [])
-            if team.get("id")
-        }
+            manager_rows = conn.execute(
+                """
+                SELECT t.id,
+                       t.name,
+                       t.manager_username,
+                       t.manager_tier,
+                       mp.display_name AS manager_name,
+                       mp.speciality AS manager_speciality
+                FROM auction_teams at
+                JOIN teams t ON t.id = at.team_id
+                LEFT JOIN players mp ON mp.id = t.manager_player_id
+                WHERE at.auction_id = ?
+                ORDER BY LOWER(COALESCE(t.name, '')) ASC
+                """,
+                (auction_id,),
+            ).fetchall()
 
         players = []
-        for player in tables.get("players", []):
-            tier = (player.get("tier") or "").strip().lower()
+        for row in player_rows:
+            tier = (row["tier"] or "").strip().lower()
             players.append(
                 {
-                    "id": player.get("id"),
-                    "name": player.get("name") or "Unknown",
+                    "id": row["player_id"],
+                    "name": row["display_name"] or "Unknown",
                     "tier": tier,
-                    "speciality": (player.get("speciality") or "-").strip() or "-",
+                    "speciality": (row["speciality"] or "-").strip() or "-",
                     "credits": TIER_CREDIT_COST.get(tier, 0),
-                    "auction_team_id": player.get("sold_to"),
-                    "auction_team_name": teams_by_id.get(player.get("sold_to")) or "-",
-                    "selection_type": "player",
+                    "auction_team_id": row["sold_to_team_id"],
+                    "auction_team_name": row["team_name"] or "-",
                 }
             )
 
-        for team in tables.get("teams", []):
-            manager_username = (team.get("manager_username") or "").strip()
+        for row in manager_rows:
+            manager_username = (row["manager_username"] or "").strip()
             if not manager_username:
                 continue
 
-            manager_user = users_by_username.get(manager_username, {})
-            manager_name = ((manager_user.get("display_name") or "").strip() or manager_username)
-
-            manager_tier = (team.get("manager_tier") or "").strip().lower()
-            manager_credits = TIER_CREDIT_COST.get(manager_tier, 0)
-
+            manager_tier = (row["manager_tier"] or "").strip().lower()
             players.append(
                 {
                     "id": f"manager::{manager_username.lower()}",
-                    "name": manager_name,
+                    "name": (row["manager_name"] or manager_username),
                     "tier": manager_tier,
-                    "speciality": (manager_user.get("speciality") or team.get("speciality") or "-").strip() or "-",
-                    "credits": manager_credits,
-                    "auction_team_id": team.get("id"),
-                    "auction_team_name": team.get("name") or "-",
-                    "selection_type": "manager",
+                    "speciality": (row["manager_speciality"] or "-").strip() or "-",
+                    "credits": TIER_CREDIT_COST.get(manager_tier, 0),
+                    "auction_team_id": row["id"],
+                    "auction_team_name": row["name"] or "-",
                 }
             )
 
-        players.sort(
-            key=lambda item: (
-                0 if item.get("selection_type") == "player" else 1,
-                (item.get("name") or "").lower(),
-            )
-        )
+        players.sort(key=lambda item: (item.get("name") or "").lower())
         return players
 
     def get_season_players(self, season_slug: str):
@@ -318,6 +336,13 @@ class FantasyService:
         normalized_ids = sorted((player_id or "").strip() for player_id in (player_ids or []) if (player_id or "").strip())
         return "|".join(normalized_ids)
 
+    @staticmethod
+    def _manager_username_from_player_id(player_id: str):
+        safe_player_id = (player_id or "").strip().lower()
+        if safe_player_id.startswith("manager::"):
+            return safe_player_id.split("::", 1)[1].strip()
+        return ""
+
     def _entry_team_signature(self, entry: dict) -> str:
         signature = (entry or {}).get("team_signature")
         if signature:
@@ -327,36 +352,35 @@ class FantasyService:
         return self._team_signature(pick_ids)
 
     def _eligible_lookup(self, season_slug: str):
-        tables = self._load_season_tables(season_slug)
+        safe_slug = (season_slug or "").strip().lower()
         lookup = {}
 
-        for user in tables.get("users", []):
-            if user.get("role") != "manager":
-                continue
-            username = (user.get("username") or "").strip()
-            display_name = (user.get("display_name") or username).strip()
-            if not username:
+        season_players = self._season_players(safe_slug)
+
+        for entrant in season_players:
+            entrant_id = (entrant.get("id") or "").strip()
+            entrant_name = (entrant.get("name") or "").strip()
+            if not entrant_name:
                 continue
 
-            canonical = f"manager:{self._normalize(username)}"
-            for alias in {username, display_name}:
-                normalized_alias = self._normalize(alias)
-                if normalized_alias:
-                    lookup[normalized_alias] = {
-                        "entrant_key": canonical,
-                        "entrant_display_name": display_name,
-                    }
-
-        for player in tables.get("players", []):
-            name = (player.get("name") or "").strip()
-            if not name:
+            manager_username = self._manager_username_from_player_id(entrant_id)
+            if manager_username:
+                canonical = f"manager:{self._normalize(manager_username)}"
+                for alias in {manager_username, entrant_name}:
+                    normalized_alias = self._normalize(alias)
+                    if normalized_alias:
+                        lookup[normalized_alias] = {
+                            "entrant_key": canonical,
+                            "entrant_display_name": entrant_name,
+                        }
                 continue
-            normalized_name = self._normalize(name)
+
+            normalized_name = self._normalize(entrant_name)
             if not normalized_name:
                 continue
             lookup[normalized_name] = {
                 "entrant_key": f"player:{normalized_name}",
-                "entrant_display_name": name,
+                "entrant_display_name": entrant_name,
             }
 
         return lookup
@@ -366,17 +390,13 @@ class FantasyService:
         submitted_keys = set()
         submitted_names = set()
 
-        store = self._get_store_if_exists(season_slug)
-        if store:
-            with store.read() as db:
-                entries = db.table("fantasy_entries").all()
-            for entry in entries:
-                entrant_key = (entry.get("entrant_key") or "").strip()
-                if entrant_key:
-                    submitted_keys.add(entrant_key)
-                normalized_existing_name = self._normalize(entry.get("entrant_name") or "")
-                if normalized_existing_name:
-                    submitted_names.add(normalized_existing_name)
+        for entry in self.get_entries_for_season(season_slug):
+            entrant_key = (entry.get("entrant_key") or "").strip()
+            if entrant_key:
+                submitted_keys.add(entrant_key)
+            normalized_existing_name = self._normalize(entry.get("entrant_name") or "")
+            if normalized_existing_name:
+                submitted_names.add(normalized_existing_name)
 
         seen = set()
         names = []
@@ -398,6 +418,7 @@ class FantasyService:
         return sorted(names, key=lambda value: value.lower())
 
     def submit_entry(self, season_slug: str, entrant_name: str, player_ids):
+        safe_slug = (season_slug or "").strip().lower()
         season = self.get_season(season_slug)
         if not season:
             raise ValueError("Fantasy season not found")
@@ -411,7 +432,7 @@ class FantasyService:
         eligible_lookup = self._eligible_lookup(season_slug)
         entrant = eligible_lookup.get(normalized_name)
         if not entrant:
-            raise ValueError("Only league players/managers can submit fantasy teams")
+            raise ValueError("Only league entrants can submit fantasy teams")
 
         unique_player_ids = []
         seen = set()
@@ -429,7 +450,7 @@ class FantasyService:
 
         team_signature = self._team_signature(unique_player_ids)
 
-        players = self._season_players(season_slug)
+        players = self._season_players(safe_slug)
         players_by_id = {player["id"]: player for player in players if player.get("id")}
 
         picks = []
@@ -453,7 +474,7 @@ class FantasyService:
 
         entry = {
             "id": secrets.token_hex(8),
-            "season_slug": (season_slug or "").strip().lower(),
+            "season_slug": safe_slug,
             "entrant_name": entrant["entrant_display_name"],
             "entrant_key": entrant["entrant_key"],
             "team_signature": team_signature,
@@ -462,49 +483,123 @@ class FantasyService:
             "created_at": datetime.utcnow().isoformat(),
         }
 
-        store = self._get_enabled_season_store(season_slug)
-        with store.write() as db:
-            entries = db.table("fantasy_entries")
-            existing_entries = entries.all()
+        with self._connect() as conn:
+            if not self._published_auction(conn, safe_slug):
+                raise ValueError("Fantasy season not found")
+
+            existing_entries = conn.execute(
+                """
+                SELECT id, entrant_name, entrant_key, team_signature
+                FROM fantasy_teams
+                WHERE season_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (safe_slug,),
+            ).fetchall()
+
             normalized_entrant_name = self._normalize(entry["entrant_name"])
 
-            conflicting_entry = None
             for existing in existing_entries:
-                existing_signature = self._entry_team_signature(existing)
-                if existing_signature and not (existing.get("team_signature") or "").strip():
-                    doc_id = getattr(existing, "doc_id", None)
-                    if doc_id is not None:
-                        entries.update({"team_signature": existing_signature}, doc_ids=[doc_id])
-
+                existing_signature = (existing["team_signature"] or "").strip()
                 if existing_signature == team_signature:
-                    conflicting_entry = existing
-                    break
+                    conflict_name = (existing["entrant_name"] or "another entrant").strip() or "another entrant"
+                    raise ValueError(f"Your team conflicts with {conflict_name}'s squad")
 
-            if conflicting_entry:
-                conflict_name = (conflicting_entry.get("entrant_name") or "another entrant").strip() or "another entrant"
-                raise ValueError(f"Your team conflicts with {conflict_name}'s squad")
+                same_entrant = (existing["entrant_key"] or "").strip() == entry["entrant_key"]
+                same_name = self._normalize(existing["entrant_name"] or "") == normalized_entrant_name
+                if same_entrant or same_name:
+                    raise ValueError("You have already submitted a fantasy team for this season")
 
-            duplicate = next(
+            conn.execute(
+                """
+                INSERT INTO fantasy_teams
+                (id, season_id, entrant_name, entrant_key, total_credits, team_signature, created_at, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
-                    existing
-                    for existing in existing_entries
-                    if (existing.get("entrant_key") or "").strip() == entry["entrant_key"]
-                    or self._normalize(existing.get("entrant_name") or "") == normalized_entrant_name
+                    entry["id"],
+                    safe_slug,
+                    entry["entrant_name"],
+                    entry["entrant_key"],
+                    entry["total_credits"],
+                    entry["team_signature"],
+                    entry["created_at"],
+                    self._dump_metadata({"season_slug": safe_slug}),
                 ),
-                None,
             )
-            if duplicate:
-                raise ValueError("You have already submitted a fantasy team for this season")
 
-            entries.insert(entry)
+            for index, pick in enumerate(picks, start=1):
+                conn.execute(
+                    """
+                    INSERT INTO fantasy_team_picks
+                    (fantasy_team_id, pick_index, player_id, player_name, tier, credits, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry["id"],
+                        index,
+                        pick.get("player_id"),
+                        pick.get("player_name"),
+                        pick.get("tier"),
+                        int(pick.get("credits") or 0),
+                        self._dump_metadata({}),
+                    ),
+                )
+
+            conn.commit()
 
         return entry
 
     def get_entries_for_season(self, season_slug: str):
-        store = self._get_enabled_season_store(season_slug)
-        with store.read() as db:
-            entries = db.table("fantasy_entries").all()
-        return sorted(entries, key=lambda item: item.get("created_at") or "", reverse=True)
+        safe_slug = (season_slug or "").strip().lower()
+        with self._connect() as conn:
+            if not self._published_auction(conn, safe_slug):
+                return []
+
+            team_rows = conn.execute(
+                """
+                SELECT id, entrant_name, entrant_key, team_signature, total_credits, created_at
+                FROM fantasy_teams
+                WHERE season_id = ?
+                ORDER BY COALESCE(created_at, '') DESC, id DESC
+                """,
+                (safe_slug,),
+            ).fetchall()
+
+            entries = []
+            for row in team_rows:
+                pick_rows = conn.execute(
+                    """
+                    SELECT player_id, player_name, tier, credits
+                    FROM fantasy_team_picks
+                    WHERE fantasy_team_id = ?
+                    ORDER BY pick_index ASC
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                picks = [
+                    {
+                        "player_id": pick["player_id"],
+                        "player_name": pick["player_name"],
+                        "tier": pick["tier"],
+                        "credits": int(pick["credits"] or 0),
+                    }
+                    for pick in pick_rows
+                ]
+
+                entries.append(
+                    {
+                        "id": row["id"],
+                        "season_slug": safe_slug,
+                        "entrant_name": row["entrant_name"],
+                        "entrant_key": row["entrant_key"],
+                        "team_signature": row["team_signature"],
+                        "picks": picks,
+                        "total_credits": int(row["total_credits"] or 0),
+                        "created_at": row["created_at"],
+                    }
+                )
+            return entries
 
     def get_rankings(self, season_slug: str):
         players = self._season_players(season_slug)

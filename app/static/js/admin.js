@@ -21,6 +21,36 @@ const scorerForm = document.getElementById("scorerForm");
 const scorerStatus = document.getElementById("scorerStatus");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
+const ADMIN_SCROLL_KEY = "adminDashboardScrollY";
+
+function rememberScrollPosition() {
+  try {
+    sessionStorage.setItem(ADMIN_SCROLL_KEY, String(window.scrollY || 0));
+  } catch (err) {
+    // Ignore storage failures in restricted browsers.
+  }
+}
+
+function restoreScrollPosition() {
+  try {
+    const raw = sessionStorage.getItem(ADMIN_SCROLL_KEY);
+    if (raw == null) {
+      return;
+    }
+    sessionStorage.removeItem(ADMIN_SCROLL_KEY);
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: value, behavior: "auto" });
+    });
+  } catch (err) {
+    // Ignore storage failures in restricted browsers.
+  }
+}
+
+restoreScrollPosition();
 
 function wireDeleteBidButtons() {
   document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
@@ -43,6 +73,7 @@ function wireDeleteBidButtons() {
 }
 
 function postForm(url, formData) {
+  rememberScrollPosition();
   return fetch(url, { method: "POST", body: formData }).then((r) => r.json());
 }
 
@@ -372,6 +403,17 @@ if (scorerForm) {
 
 wireDeleteBidButtons();
 refreshSessions();
+
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  if (!form.closest("#adminDashboard")) {
+    return;
+  }
+  rememberScrollPosition();
+});
 
 document.addEventListener("click", async (event) => {
   const btn = event.target.closest("button");

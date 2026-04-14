@@ -1,7 +1,9 @@
 import secrets
+import json
+import sqlite3
 from datetime import datetime
 
-from tinydb import Query
+from app.db import Query
 
 from app.rules import (
     PHASE_A_BREAK,
@@ -22,6 +24,502 @@ from app.rules import (
 class AuctionService:
     def __init__(self, store):
         self.store = store
+        self._db_path = getattr(getattr(store, "db", None), "path", None)
+
+    def _connect(self):
+        if not self._db_path:
+            raise RuntimeError("Auction database path is not configured")
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @staticmethod
+    def _safe_json_dumps(payload):
+        return json.dumps(payload or {}, ensure_ascii=True)
+
+    @staticmethod
+    def _safe_json_loads(raw_value):
+        if not raw_value:
+            return {}
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:  # noqa: BLE001
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _resolve_runtime_auction_row(self, conn: sqlite3.Connection):
+        row = conn.execute(
+            """
+            SELECT id, season_id, name, status, source_path, metadata_json
+            FROM auctions
+            ORDER BY
+                CASE status WHEN 'active' THEN 0 WHEN 'published' THEN 1 ELSE 2 END,
+                COALESCE(updated_at, '') DESC,
+                COALESCE(saved_at, '') DESC,
+                id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+        if row:
+            return row
+
+        season_id = "live"
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO seasons (id, slug, name, created_at, published_at, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                season_id,
+                season_id,
+                "Live Auction",
+                datetime.utcnow().isoformat(),
+                None,
+                self._safe_json_dumps({"source": "runtime"}),
+            ),
+        )
+        auction_id = f"auction::{season_id}::runtime"
+        conn.execute(
+            """
+            INSERT INTO auctions
+            (id, season_id, name, mode, source_path, status, phase, current_player_id, started_at, ended_at, created_at, updated_at, saved_at, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                auction_id,
+                season_id,
+                "Live Auction",
+                "live",
+                "runtime",
+                "active",
+                None,
+                None,
+                None,
+                None,
+                datetime.utcnow().isoformat(),
+                datetime.utcnow().isoformat(),
+                None,
+                self._safe_json_dumps({"created_by": "auction_service"}),
+            ),
+        )
+        conn.commit()
+        return conn.execute(
+            "SELECT id, season_id, name, status, source_path, metadata_json FROM auctions WHERE id = ?",
+            (auction_id,),
+        ).fetchone()
+
+    def _sync_runtime_tables_to_normalized(self):
+        try:
+            runtime_tables = self.store.export_tables()
+        except Exception:  # noqa: BLE001
+            return
+
+        meta = (runtime_tables.get("meta") or [{}])[0] if isinstance(runtime_tables, dict) else {}
+        teams = list(runtime_tables.get("teams") or []) if isinstance(runtime_tables, dict) else []
+        users = list(runtime_tables.get("users") or []) if isinstance(runtime_tables, dict) else []
+        players = list(runtime_tables.get("players") or []) if isinstance(runtime_tables, dict) else []
+        bids = list(runtime_tables.get("bids") or []) if isinstance(runtime_tables, dict) else []
+        trade_requests = list(runtime_tables.get("trade_requests") or []) if isinstance(runtime_tables, dict) else []
+
+        with self._connect() as conn:
+            auction_row = self._resolve_runtime_auction_row(conn)
+            auction_id = auction_row["id"]
+            season_id = auction_row["season_id"]
+
+            merged_metadata = self._safe_json_loads(auction_row["metadata_json"])
+            merged_metadata["meta"] = {
+                "phase": meta.get("phase"),
+                "current_player_id": meta.get("current_player_id"),
+                "nomination_history": list(meta.get("nomination_history") or []),
+                "created_at": meta.get("created_at"),
+            }
+
+            conn.execute(
+                """
+                UPDATE auctions
+                SET phase = ?,
+                    current_player_id = ?,
+                    updated_at = ?,
+                    metadata_json = ?
+                WHERE id = ?
+                """,
+                (
+                    meta.get("phase"),
+                    meta.get("current_player_id"),
+                    datetime.utcnow().isoformat(),
+                    self._safe_json_dumps(merged_metadata),
+                    auction_id,
+                ),
+            )
+
+            conn.execute("DELETE FROM auction_teams WHERE auction_id = ?", (auction_id,))
+            conn.execute(
+                """
+                DELETE FROM users
+                WHERE source_scope = 'runtime-auction'
+                  AND (password_hash IS NULL OR LENGTH(TRIM(password_hash)) = 0)
+                """
+            )
+
+            users_by_username = {
+                (user.get("username") or "").strip(): user
+                for user in users
+                if (user.get("username") or "").strip()
+            }
+
+            for player in players:
+                player_id = (player.get("id") or "").strip()
+                if not player_id:
+                    continue
+
+                conn.execute(
+                    """
+                    INSERT INTO players
+                    (id, canonical_name, display_name, speciality, tier, is_manager, manager_username, created_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        canonical_name = excluded.canonical_name,
+                        display_name = excluded.display_name,
+                        speciality = excluded.speciality,
+                        tier = excluded.tier,
+                        metadata_json = excluded.metadata_json
+                    """,
+                    (
+                        player_id,
+                        (player.get("name") or "").strip().lower() or None,
+                        player.get("name"),
+                        player.get("speciality"),
+                        player.get("tier"),
+                        0,
+                        None,
+                        datetime.utcnow().isoformat(),
+                        self._safe_json_dumps(player),
+                    ),
+                )
+
+            for team in teams:
+                team_id = (team.get("id") or "").strip()
+                if not team_id:
+                    continue
+
+                manager_username = (team.get("manager_username") or "").strip()
+                manager_player_id = f"manager::{manager_username.lower()}" if manager_username else f"manager::{team_id}"
+                manager_profile = users_by_username.get(manager_username, {})
+                manager_tier = (team.get("manager_tier") or "silver").strip().lower()
+
+                conn.execute(
+                    """
+                    INSERT INTO players
+                    (id, canonical_name, display_name, speciality, tier, is_manager, manager_username, created_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        canonical_name = excluded.canonical_name,
+                        display_name = excluded.display_name,
+                        speciality = excluded.speciality,
+                        tier = excluded.tier,
+                        is_manager = 1,
+                        manager_username = excluded.manager_username,
+                        metadata_json = excluded.metadata_json
+                    """,
+                    (
+                        manager_player_id,
+                        ((manager_profile.get("display_name") or manager_username) or "").strip().lower() or None,
+                        (manager_profile.get("display_name") or manager_username or team.get("name") or team_id),
+                        manager_profile.get("speciality") or "ALL_ROUNDER",
+                        manager_tier,
+                        1,
+                        manager_username or None,
+                        datetime.utcnow().isoformat(),
+                        self._safe_json_dumps({"team_id": team_id}),
+                    ),
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO teams
+                    (id, name, manager_player_id, manager_username, manager_tier, created_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        manager_player_id = excluded.manager_player_id,
+                        manager_username = excluded.manager_username,
+                        manager_tier = excluded.manager_tier,
+                        metadata_json = excluded.metadata_json
+                    """,
+                    (
+                        team_id,
+                        team.get("name") or team_id,
+                        manager_player_id,
+                        manager_username or None,
+                        team.get("manager_tier"),
+                        datetime.utcnow().isoformat(),
+                        self._safe_json_dumps(team),
+                    ),
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO auction_teams
+                    (id, auction_id, team_id, manager_player_id, purse_start, purse_remaining, credits_start, credits_remaining, entry_status, added_at, removed_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        purse_remaining = excluded.purse_remaining,
+                        credits_remaining = excluded.credits_remaining,
+                        metadata_json = excluded.metadata_json
+                    """,
+                    (
+                        f"auction-team::{auction_id}::{team_id}",
+                        auction_id,
+                        team_id,
+                        manager_player_id,
+                        team.get("purse_remaining"),
+                        team.get("purse_remaining"),
+                        team.get("credits_remaining"),
+                        team.get("credits_remaining"),
+                        "active",
+                        datetime.utcnow().isoformat(),
+                        None,
+                        self._safe_json_dumps(team),
+                    ),
+                )
+
+                if manager_username:
+                    user_row = users_by_username.get(manager_username, {})
+                    existing_auth = conn.execute(
+                        """
+                        SELECT id, password_hash
+                        FROM users
+                        WHERE username = ?
+                          AND password_hash IS NOT NULL
+                          AND LENGTH(TRIM(password_hash)) > 0
+                        ORDER BY id ASC
+                        LIMIT 1
+                        """,
+                        (manager_username,),
+                    ).fetchone()
+
+                    if existing_auth:
+                        conn.execute(
+                            """
+                            UPDATE users
+                            SET role = ?,
+                                display_name = ?,
+                                speciality = ?,
+                                team_id = ?,
+                                source_scope = ?,
+                                metadata_json = ?
+                            WHERE id = ?
+                            """,
+                            (
+                                "manager",
+                                user_row.get("display_name") or manager_username,
+                                user_row.get("speciality"),
+                                team_id,
+                                "runtime-auction",
+                                self._safe_json_dumps(user_row),
+                                int(existing_auth["id"]),
+                            ),
+                        )
+                    else:
+                        existing_user = conn.execute(
+                            """
+                            SELECT id
+                            FROM users
+                            WHERE username = ?
+                              AND source_scope = 'runtime-auction'
+                            ORDER BY id ASC
+                            LIMIT 1
+                            """,
+                            (manager_username,),
+                        ).fetchone()
+                        if existing_user:
+                            conn.execute(
+                                """
+                                UPDATE users
+                                SET role = ?,
+                                    display_name = ?,
+                                    speciality = ?,
+                                    team_id = ?,
+                                    metadata_json = ?
+                                WHERE id = ?
+                                """,
+                                (
+                                    "manager",
+                                    user_row.get("display_name") or manager_username,
+                                    user_row.get("speciality"),
+                                    team_id,
+                                    self._safe_json_dumps(user_row),
+                                    int(existing_user["id"]),
+                                ),
+                            )
+                        else:
+                            conn.execute(
+                                """
+                                INSERT INTO users
+                                (username, role, display_name, speciality, team_id, password_hash, source_scope, metadata_json)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    manager_username,
+                                    "manager",
+                                    user_row.get("display_name") or manager_username,
+                                    user_row.get("speciality"),
+                                    team_id,
+                                    None,
+                                    "runtime-auction",
+                                    self._safe_json_dumps(user_row),
+                                ),
+                            )
+
+            conn.execute("DELETE FROM team_rosters WHERE auction_id = ?", (auction_id,))
+            for team in teams:
+                team_id = (team.get("id") or "").strip()
+                if not team_id:
+                    continue
+
+                manager_username = (team.get("manager_username") or "").strip()
+                manager_player_id = f"manager::{manager_username.lower()}" if manager_username else f"manager::{team_id}"
+
+                conn.execute(
+                    """
+                    INSERT INTO team_rosters
+                    (auction_id, season_id, team_id, player_id, roster_role, created_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        auction_id,
+                        season_id,
+                        team_id,
+                        manager_player_id,
+                        "manager",
+                        datetime.utcnow().isoformat(),
+                        self._safe_json_dumps({}),
+                    ),
+                )
+
+                for player_id in team.get("players", []) or []:
+                    if not player_id:
+                        continue
+                    conn.execute(
+                        """
+                        INSERT INTO team_rosters
+                        (auction_id, season_id, team_id, player_id, roster_role, created_at, metadata_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            auction_id,
+                            season_id,
+                            team_id,
+                            player_id,
+                            "active",
+                            datetime.utcnow().isoformat(),
+                            self._safe_json_dumps({}),
+                        ),
+                    )
+
+                for player_id in team.get("bench", []) or []:
+                    if not player_id:
+                        continue
+                    conn.execute(
+                        """
+                        INSERT INTO team_rosters
+                        (auction_id, season_id, team_id, player_id, roster_role, created_at, metadata_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            auction_id,
+                            season_id,
+                            team_id,
+                            player_id,
+                            "bench",
+                            datetime.utcnow().isoformat(),
+                            self._safe_json_dumps({}),
+                        ),
+                    )
+
+            conn.execute("DELETE FROM auction_players WHERE auction_id = ?", (auction_id,))
+            for player in players:
+                player_id = (player.get("id") or "").strip()
+                if not player_id:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO auction_players
+                    (id, auction_id, player_id, nomination_order, entry_status, opening_price, current_bid, sold_to_team_id, sold_price, phase_sold, added_at, removed_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"auction-player::{auction_id}::{player_id}",
+                        auction_id,
+                        player_id,
+                        None,
+                        player.get("status") or "unsold",
+                        player.get("base_price"),
+                        int(player.get("current_bid") or 0),
+                        player.get("sold_to"),
+                        int(player.get("sold_price") or 0),
+                        player.get("phase_sold"),
+                        datetime.utcnow().isoformat(),
+                        None,
+                        self._safe_json_dumps(player),
+                    ),
+                )
+
+            conn.execute("DELETE FROM bids WHERE auction_id = ?", (auction_id,))
+            for bid in bids:
+                bid_id = (bid.get("id") or "").strip() or secrets.token_hex(8)
+                conn.execute(
+                    """
+                    INSERT INTO bids
+                    (id, auction_id, season_id, player_id, team_id, amount, phase, kind, ts, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        bid_id,
+                        auction_id,
+                        season_id,
+                        bid.get("player_id"),
+                        bid.get("team_id"),
+                        int(bid.get("amount") or 0),
+                        bid.get("phase"),
+                        bid.get("kind"),
+                        bid.get("ts"),
+                        self._safe_json_dumps(bid),
+                    ),
+                )
+
+            conn.execute("DELETE FROM trades WHERE auction_id = ?", (auction_id,))
+            for trade in trade_requests:
+                trade_id = (trade.get("id") or "").strip() or secrets.token_hex(8)
+                conn.execute(
+                    """
+                    INSERT INTO trades
+                    (id, auction_id, season_id, from_team_id, to_team_id, offered_player_id, requested_player_id, cash_delta, status, requested_by_team_id, responded_by_team_id, created_at, responded_at, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        trade_id,
+                        auction_id,
+                        season_id,
+                        trade.get("from_team_id"),
+                        trade.get("to_team_id"),
+                        trade.get("offered_player_id"),
+                        trade.get("requested_player_id"),
+                        int(trade.get("cash_from_target", 0) or 0) - int(trade.get("cash_from_initiator", 0) or 0),
+                        trade.get("status") or "pending",
+                        trade.get("from_team_id"),
+                        trade.get("responded_by_team_id"),
+                        trade.get("created_at"),
+                        trade.get("responded_at"),
+                        self._safe_json_dumps(trade),
+                    ),
+                )
+
+            conn.commit()
+
+    def sync_to_normalized(self):
+        self._sync_runtime_tables_to_normalized()
 
     def _build_state_from_data(self, meta, teams, users, players, bids, bid_limit=25):
         def format_bid_time(ts: str):
@@ -104,6 +602,57 @@ class AuctionService:
                 }
             )
 
+        player_rows = [
+            {
+                **p,
+                "sold_to_team_name": teams_by_id.get(p.get("sold_to"), {}).get("name", "-") if p.get("sold_to") else "-",
+                "is_manager": bool(p.get("is_manager", False)),
+                "selection_type": "player",
+            }
+            for p in players
+        ]
+
+        for team in teams:
+            team_id = team.get("id")
+            manager_username = (team.get("manager_username") or "").strip()
+            if not team_id or not manager_username:
+                continue
+
+            manager_user = users_by_team_id.get(team_id, {})
+            manager_tier = (team.get("manager_tier") or "silver").strip().lower()
+            manager_id = f"manager::{manager_username.lower()}"
+
+            if any((item.get("id") or "").strip() == manager_id for item in player_rows):
+                continue
+
+            player_rows.append(
+                {
+                    "id": manager_id,
+                    "name": manager_user.get("display_name") or manager_username,
+                    "tier": manager_tier,
+                    "speciality": manager_user.get("speciality") or "ALL_ROUNDER",
+                    "base_price": 0,
+                    "status": "manager",
+                    "sold_to": team_id,
+                    "sold_to_team_name": team.get("name") or "-",
+                    "sold_price": 0,
+                    "phase_sold": None,
+                    "credits": TIER_CREDIT_COST.get(manager_tier, 0),
+                    "current_bid": 0,
+                    "current_bidder_team_id": None,
+                    "nominated_phase_a": False,
+                    "is_manager": True,
+                    "selection_type": "manager",
+                }
+            )
+
+        player_rows.sort(
+            key=lambda item: (
+                0 if item.get("selection_type") == "player" else 1,
+                (item.get("name") or "").lower(),
+            )
+        )
+
         return {
             "phase": meta.get("phase", PHASE_SETUP),
             "current_player": current_player,
@@ -119,13 +668,7 @@ class AuctionService:
                 for m in users
                 if m.get("role") == "manager"
             ],
-            "players": [
-                {
-                    **p,
-                    "sold_to_team_name": teams_by_id.get(p.get("sold_to"), {}).get("name", "-") if p.get("sold_to") else "-",
-                }
-                for p in players
-            ],
+            "players": player_rows,
             "bids": enriched_bids,
             "current_lot_bids": current_lot_bids,
             "phase_b_readiness": {
@@ -252,6 +795,7 @@ class AuctionService:
             db.table("meta").update({"phase": phase}, doc_ids=[1])
 
     def get_state(self):
+        self._sync_runtime_tables_to_normalized()
         with self.store.read() as db:
             meta = self._get_meta(db)
             teams = db.table("teams").all()

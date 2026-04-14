@@ -81,6 +81,13 @@ body {
 .stack { display: grid; gap: 12px; }
 .stack-sm { display: grid; gap: 8px; }
 .grid-2 { display: grid; gap: 10px; }
+
+/* Keep admin cards visually separated within each tab panel. */
+#adminDashboard .admin-tab-panel:not([hidden]) {
+  display: grid;
+  gap: 14px;
+}
+
 @media (min-width: 700px) {
   .grid-2 { grid-template-columns: 1fr 1fr; }
 }

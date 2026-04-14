@@ -1,10 +1,10 @@
 # SCL Auction Dashboard
 
-Mobile-first Flask + TinyDB auction dashboard for Small Cricket League.
+Mobile-first Flask + SQLite auction dashboard for Small Cricket League.
 
 ## Features implemented
 
-- TinyDB storage with process-wide thread-safe lock for all reads/writes.
+- SQLite storage with process-wide thread-safe lock for all reads/writes.
 - Roles:
   - Administrator: setup/control auction, create manager credentials, manage phases.
   - Manager: login and bid with quick action buttons.

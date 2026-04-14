@@ -1,5 +1,6 @@
 import json
 import re
+import sqlite3
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ class ScorerService:
     def __init__(self, season_store_manager, auction_service, app_root: str, config_path: str):
         self.season_store_manager = season_store_manager
         self.auction_service = auction_service
+        self._db_path = getattr(getattr(auction_service.store, "db", None), "path", None)
 
         app_root_path = Path(app_root)
         self.workspace_root = app_root_path.parent
@@ -22,6 +24,13 @@ class ScorerService:
         config_file = Path(config_path)
         self.config_path = config_file if config_file.is_absolute() else (self.workspace_root / config_file)
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _connect(self):
+        if not self._db_path:
+            raise RuntimeError("Scorer database path is not configured")
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def _normalize_config(self, payload):
         config = dict(self.DEFAULT_CONFIG)
@@ -61,125 +70,178 @@ class ScorerService:
         return config
 
     def list_seasons(self):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.slug,
+                       s.name,
+                       a.saved_at,
+                       s.published_at,
+                       a.id
+                FROM seasons s
+                JOIN auctions a ON a.season_id = s.id
+                WHERE a.status = 'published'
+                ORDER BY COALESCE(a.saved_at, s.published_at, '') DESC, a.id DESC
+                """
+            ).fetchall()
+
         seasons = []
-        for slug in self.season_store_manager.list_slugs():
-            meta = self._season_meta(slug)
+        seen = set()
+        for row in rows:
+            slug = (row["slug"] or "").strip().lower()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
             seasons.append(
                 {
                     "slug": slug,
-                    "name": meta.get("name") or slug,
-                    "published_at": meta.get("published_at") or "",
+                    "name": (row["name"] or slug),
+                    "published_at": row["saved_at"] or row["published_at"] or "",
                 }
             )
-        seasons.sort(key=lambda item: item.get("published_at") or "", reverse=True)
         return seasons
 
-    def _season_meta(self, slug: str):
-        if not self.season_store_manager.has_season(slug):
-            return {}
-        store = self.season_store_manager.get_store(slug, create=False)
-        with store.read() as db:
-            return db.table("season_meta").get(doc_id=1) or {}
-
     def _default_season_slug(self):
-        seasons = self.season_store_manager.list_slugs()
-        return seasons[0] if seasons else ""
+        seasons = self.list_seasons()
+        return seasons[0]["slug"] if seasons else ""
 
-    def _load_tables(self, season_slug: str):
+    def _resolve_auction(self, conn: sqlite3.Connection, season_slug: str):
         safe_slug = (season_slug or "").strip().lower()
-        if safe_slug and self.season_store_manager.has_season(safe_slug):
-            store = self.season_store_manager.get_store(safe_slug, create=False)
-            tables = store.export_tables()
-            meta = self._season_meta(safe_slug)
-            return tables, meta
+        if safe_slug:
+            row = conn.execute(
+                """
+                SELECT a.id,
+                       a.phase,
+                       a.current_player_id,
+                       s.slug,
+                       s.name
+                FROM auctions a
+                JOIN seasons s ON s.id = a.season_id
+                WHERE a.status = 'published'
+                  AND (s.slug = ? OR s.id = ?)
+                ORDER BY COALESCE(a.saved_at, '') DESC, COALESCE(a.created_at, '') DESC, a.id DESC
+                LIMIT 1
+                """,
+                (safe_slug, safe_slug),
+            ).fetchone()
+            if row:
+                return row
 
-        tables = self.auction_service.store.export_tables()
-        with self.auction_service.store.read() as db:
-            meta = db.table("meta").get(doc_id=1) or {}
-        return tables, meta
+        return conn.execute(
+            """
+            SELECT a.id,
+                   a.phase,
+                   a.current_player_id,
+                   s.slug,
+                   s.name
+            FROM auctions a
+            JOIN seasons s ON s.id = a.season_id
+            ORDER BY
+                CASE a.status WHEN 'active' THEN 0 WHEN 'published' THEN 1 ELSE 2 END,
+                COALESCE(a.saved_at, '') DESC,
+                COALESCE(a.updated_at, '') DESC,
+                a.id DESC
+            LIMIT 1
+            """
+        ).fetchone()
 
-    def _build_teams(self, tables):
-        teams = list(tables.get("teams", [])) if isinstance(tables, dict) else []
-        users_by_username = {
-            (user.get("username") or "").strip(): user
-            for user in (tables.get("users", []) if isinstance(tables, dict) else [])
-            if (user.get("username") or "").strip()
-        }
-        players_by_id = {
-            (player.get("id") or "").strip(): player
-            for player in (tables.get("players", []) if isinstance(tables, dict) else [])
-            if (player.get("id") or "").strip()
-        }
+    def _build_teams_for_auction(self, conn: sqlite3.Connection, auction_id: str):
+        team_rows = conn.execute(
+            """
+            SELECT t.id,
+                   t.name,
+                   t.manager_username,
+                   t.manager_tier,
+                   mp.display_name AS manager_name,
+                   mp.speciality AS manager_speciality
+            FROM auction_teams at
+            JOIN teams t ON t.id = at.team_id
+            LEFT JOIN players mp ON mp.id = t.manager_player_id
+            WHERE at.auction_id = ?
+            ORDER BY LOWER(COALESCE(t.name, '')) ASC
+            """,
+            (auction_id,),
+        ).fetchall()
 
-        roster_teams = []
-        for team in teams:
-            team_id = (team.get("id") or "").strip()
-            team_name = (team.get("name") or team_id or "Team").strip()
-            manager_username = (team.get("manager_username") or "").strip()
-            manager_user = users_by_username.get(manager_username, {})
+        roster_rows = conn.execute(
+            """
+            SELECT tr.team_id,
+                   tr.player_id,
+                   tr.roster_role,
+                   p.display_name,
+                   p.tier,
+                   p.speciality
+            FROM team_rosters tr
+            JOIN players p ON p.id = tr.player_id
+            WHERE tr.auction_id = ?
+            ORDER BY LOWER(COALESCE(p.display_name, '')) ASC
+            """,
+            (auction_id,),
+        ).fetchall()
 
-            roster_ids = []
-            for field_name in ("players", "bench"):
-                for player_id in team.get(field_name, []) or []:
-                    safe_player_id = (player_id or "").strip()
-                    if safe_player_id and safe_player_id not in roster_ids:
-                        roster_ids.append(safe_player_id)
+        roster_by_team = {}
+        for row in roster_rows:
+            role = (row["roster_role"] or "").strip().lower()
+            if role not in {"active", "bench"}:
+                continue
+            roster_by_team.setdefault(row["team_id"], []).append(
+                {
+                    "id": row["player_id"],
+                    "name": row["display_name"] or "Unknown",
+                    "tier": (row["tier"] or "").strip().lower(),
+                    "speciality": (row["speciality"] or "-").strip() or "-",
+                }
+            )
 
-            roster = []
-            for player_id in roster_ids:
-                player = players_by_id.get(player_id)
-                if not player:
-                    continue
-                roster.append(
-                    {
-                        "id": player.get("id"),
-                        "name": player.get("name") or "Unknown",
-                        "tier": (player.get("tier") or "").strip().lower(),
-                        "speciality": (player.get("speciality") or "-").strip() or "-",
-                    }
-                )
+        output = []
+        for team in team_rows:
+            team_id = team["id"]
+            team_name = (team["name"] or team_id or "Team").strip()
+            manager_username = (team["manager_username"] or "").strip()
 
+            roster = list(roster_by_team.get(team_id, []))
             if manager_username:
                 roster.append(
                     {
                         "id": team_id,
-                        "name": manager_user.get("display_name") or manager_username or team_name,
-                        "tier": (team.get("manager_tier") or "").strip().lower(),
-                        "speciality": (manager_user.get("speciality") or team.get("manager_speciality") or "-").strip() or "-",
+                        "name": (team["manager_name"] or manager_username or team_name),
+                        "tier": (team["manager_tier"] or "").strip().lower(),
+                        "speciality": (team["manager_speciality"] or "-").strip() or "-",
                     }
                 )
 
             roster.sort(key=lambda item: item.get("name", "").lower())
-            roster_teams.append(
+            output.append(
                 {
                     "id": team_id,
                     "name": team_name,
                     "manager_id": team_id,
                     "manager_username": manager_username,
-                    "manager_name": manager_user.get("display_name") or manager_username or team_name,
-                    "manager_tier": (team.get("manager_tier") or "").strip().lower(),
+                    "manager_name": (team["manager_name"] or manager_username or team_name),
+                    "manager_tier": (team["manager_tier"] or "").strip().lower(),
                     "players": roster,
                 }
             )
-
-        return roster_teams
+        return output
 
     def build_context(self):
         config = self.load_config()
         season_slug = config.get("season_slug") or self._default_season_slug()
-        tables, source_meta = self._load_tables(season_slug)
-        teams = self._build_teams(tables)
 
-        season_slug = season_slug or source_meta.get("slug") or ""
-        season_name = source_meta.get("name") or season_slug or config["title"]
+        with self._connect() as conn:
+            auction = self._resolve_auction(conn, season_slug)
+            teams = self._build_teams_for_auction(conn, auction["id"]) if auction else []
+
+            resolved_slug = (auction["slug"] if auction and auction["slug"] else season_slug) or ""
+            resolved_name = (auction["name"] if auction and auction["name"] else resolved_slug) or config["title"]
 
         payload = {
             "title": config["title"],
             "version": config["version"],
             "max_overs": config["max_overs"],
             "season": {
-                "slug": season_slug,
-                "name": season_name,
+                "slug": resolved_slug,
+                "name": resolved_name,
             },
             "teams": teams,
         }

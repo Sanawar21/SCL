@@ -1,14 +1,16 @@
 from flask import Flask
 from flask_socketio import SocketIO
 from pathlib import Path
-import os
-import shutil
 import json
 from datetime import datetime
-from tinydb import TinyDB
 
 from app.config import Config
-from app.db import LockedTinyDB, SeasonStoreManager
+from app.db import (
+    LockedTinyDB,
+    SeasonStoreManager,
+    bootstrap_auction_store_from_normalized,
+    migrate_legacy_json_to_sqlite,
+)
 from app.services.auth_service import AuthService
 from app.services.auction_service import AuctionService
 from app.services.fantasy_service import FantasyService
@@ -22,6 +24,17 @@ def _resolve_path(app: Flask, configured_path: str) -> Path:
     if path_obj.is_absolute():
         return path_obj
     return Path(app.root_path).parent / path_obj
+
+
+def _migrate_legacy_store_if_needed(target_path: Path, legacy_candidates: list[Path]):
+    if target_path.exists():
+        return
+
+    for legacy_path in legacy_candidates:
+        if not legacy_path.exists():
+            continue
+        if migrate_legacy_json_to_sqlite(legacy_path, target_path):
+            return
 
 
 def _migrate_legacy_published_sessions(app: Flask):
@@ -107,9 +120,16 @@ def _migrate_legacy_session_snapshots(app: Flask):
     legacy_snapshot_db_path = _resolve_path(app, app.config["LEGACY_SNAPSHOT_DB_PATH"])
     if legacy_snapshot_db_path.exists():
         try:
-            legacy_db = TinyDB(str(legacy_snapshot_db_path))
-            rows = legacy_db.table("auction_snapshots").all()
-            legacy_db.close()
+            legacy_payload = json.loads(legacy_snapshot_db_path.read_text(encoding="utf-8"))
+            rows = []
+            raw_rows = legacy_payload.get("auction_snapshots") if isinstance(legacy_payload, dict) else None
+            if isinstance(raw_rows, dict):
+                for key in sorted(raw_rows.keys(), key=lambda item: (len(str(item)), str(item))):
+                    row = raw_rows.get(key)
+                    if isinstance(row, dict):
+                        rows.append(row)
+            elif isinstance(raw_rows, list):
+                rows = [row for row in raw_rows if isinstance(row, dict)]
         except Exception:  # noqa: BLE001
             rows = []
 
@@ -128,18 +148,27 @@ def create_app():
     app.config.from_object(Config)
 
     legacy_db_path = _resolve_path(app, app.config["DB_PATH"])
+    legacy_auth_path = _resolve_path(app, app.config["LEGACY_AUTH_DB_PATH"])
+    legacy_auction_path = _resolve_path(app, app.config["LEGACY_AUCTION_DB_PATH"])
     configured_auction_path = _resolve_path(app, app.config["AUCTION_DB_PATH"])
     configured_auth_path = _resolve_path(app, app.config["AUTH_DB_PATH"])
 
-    auction_db_env_override = os.environ.get("SCL_AUCTION_DB_PATH")
-    if not configured_auction_path.exists() and legacy_db_path.exists() and not auction_db_env_override:
-        configured_auction_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(str(legacy_db_path), str(configured_auction_path))
+    _migrate_legacy_store_if_needed(
+        configured_auth_path,
+        [legacy_auth_path],
+    )
+    _migrate_legacy_store_if_needed(
+        configured_auction_path,
+        [legacy_auction_path, legacy_db_path],
+    )
 
     auction_db_path = str(configured_auction_path)
 
     auth_store = LockedTinyDB(str(configured_auth_path))
     auction_store = LockedTinyDB(auction_db_path)
+
+    bootstrap_auction_store_from_normalized(auction_store, configured_auction_path)
+
     season_store_manager = SeasonStoreManager(app.config["SEASON_DB_DIR"], app.root_path)
     auth_service = AuthService(auth_store)
     auction_service = AuctionService(auction_store)

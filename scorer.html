@@ -135,6 +135,7 @@
         <button onclick="showOutModal()" class="danger">OUT</button>
       </div>
       <div class="grid-3" style="margin-top: 10px;">
+        <button onclick="showDeclareModal()" style="background: #7c3aed;">Declare</button>
         <button onclick="swapBatters()" class="secondary">Cross</button>
         <button onclick="undo()" class="secondary">Undo</button>
         <button onclick="manualEndInnings()" style="background: #374151;">End Innings</button>
@@ -208,6 +209,13 @@
   <div class="modal-content">
     <h3 style="margin-top: 0; color: #ef4444;">Wicket</h3>
     <div style="margin-bottom: 15px;">
+      <label>Delivery Type:</label>
+      <select id="outDeliveryType">
+        <option value="None">Legal Ball</option>
+        <option value="No Ball">No Ball (Run Out)</option>
+      </select>
+    </div>
+    <div style="margin-bottom: 15px;">
       <label>Runs completed:</label>
       <select id="outRunsSelect">
         <option value="0">0</option>
@@ -226,6 +234,22 @@
     </div>
     <button onclick="recordOut()" class="danger" style="width: 100%;">Confirm Wicket</button>
     <button onclick="$('modal-out').classList.remove('active')" class="secondary" style="width: 100%; margin-top: 10px;">Cancel</button>
+  </div>
+</div>
+
+<div id="modal-declare" class="modal">
+  <div class="modal-content">
+    <h3 style="margin-top: 0; color: #7c3aed;">Declare Batsman</h3>
+    <div style="margin-bottom: 15px;">
+      <label>Batter To Switch Out:</label>
+      <select id="declareOutSelect"></select>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <label>Replacement Batter:</label>
+      <select id="declareInSelect"></select>
+    </div>
+    <button onclick="applyDeclareBatsman()" style="width: 100%;">Confirm Switch</button>
+    <button onclick="$('modal-declare').classList.remove('active')" class="secondary" style="width: 100%; margin-top: 10px;">Cancel</button>
   </div>
 </div>
 
@@ -261,10 +285,12 @@
   function playerById(playerId) { return PLAYER_LOOKUP.get(playerId) || null; }
   function playerLabel(playerId) { return playerById(playerId)?.name || ''; }
   function csvValue(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
-  function getOtherTeamId(teamId) {
-    const teams = SCORER_DATA.teams || [];
-    const other = teams.find((team) => team.id !== teamId);
-    return other ? other.id : '';
+  function getOtherTeamId(teamId, allowedTeamIds = null) {
+    const candidateIds = Array.isArray(allowedTeamIds) && allowedTeamIds.length
+      ? allowedTeamIds
+      : (SCORER_DATA.teams || []).map((team) => team.id);
+    const otherId = candidateIds.find((id) => id && id !== teamId);
+    return otherId || '';
   }
   function scorerTitle() {
     return `${SCORER_DATA.title || 'SCL Scorer'} v${SCORER_DATA.version || '1.0.0'}`;
@@ -394,7 +420,10 @@
       return;
     }
 
-    const battingTeamId = state.tossDecision === 'Bat' ? state.tossWinnerId : getOtherTeamId(state.tossWinnerId);
+    const selectedTeamIds = [state.team1Id, state.team2Id].filter(Boolean);
+    const battingTeamId = state.tossDecision === 'Bat'
+      ? state.tossWinnerId
+      : getOtherTeamId(state.tossWinnerId, selectedTeamIds);
     const bowlingTeamId = battingTeamId === state.team1Id ? state.team2Id : state.team1Id;
 
     if (!battingTeamId || !bowlingTeamId) {
@@ -664,6 +693,7 @@
     $('modal-noball').classList.remove('active');
     $('modal-wide').classList.remove('active');
     $('modal-out').classList.remove('active');
+    $('modal-declare').classList.remove('active');
     if (state.screen === 'scoring') updateScoringUI();
     if (state.screen === 'innings-setup') setupInningsScreen();
     showScreen(state.screen);
@@ -771,7 +801,13 @@
     updateScoringUI();
     const opts = $('batterOptions');
     opts.innerHTML = '';
-    const available = teamPlayers(state.battingTeamId).filter((player) => player.id !== state.strikerId && player.id !== state.nonStrikerId && !state.batterOrders[player.id]);
+    const dismissed = dismissedInCurrentInnings();
+    const available = teamPlayers(state.battingTeamId).filter((player) => {
+      if (!player || !player.id) return false;
+      if (player.id === state.strikerId || player.id === state.nonStrikerId) return false;
+      if (dismissed.has(player.id)) return false;
+      return true;
+    });
 
     if (available.length === 0) {
       opts.innerHTML = '<p>No more batters.</p>';
@@ -788,7 +824,9 @@
   }
 
   function selectNewBatter(playerId) {
-    state.batterOrders[playerId] = state.nextBatterOrder++;
+    if (!state.batterOrders[playerId]) {
+      state.batterOrders[playerId] = state.nextBatterOrder++;
+    }
     $('modal-batter').classList.remove('active');
 
     if (state.strikerId === state.dismissedBatterId) {
@@ -846,6 +884,7 @@
   }
 
   function showOutModal() {
+    $('outDeliveryType').value = 'None';
     $('outRunsSelect').value = '0';
     const obs = $('outBatterSelect');
     obs.innerHTML = '';
@@ -854,11 +893,77 @@
     $('modal-out').classList.add('active');
   }
 
+  function dismissedInCurrentInnings() {
+    const dismissed = new Set();
+    state.ballHistory
+      .filter((ball) => ball.inningsOrder === state.innings)
+      .forEach((ball) => {
+        if (ball.dismissedBatterId) {
+          dismissed.add(ball.dismissedBatterId);
+        }
+      });
+    return dismissed;
+  }
+
+  function showDeclareModal() {
+    const outSelect = $('declareOutSelect');
+    const inSelect = $('declareInSelect');
+    const dismissed = dismissedInCurrentInnings();
+
+    outSelect.innerHTML = '';
+    inSelect.innerHTML = '';
+
+    outSelect.add(new Option(playerLabel(state.strikerId) + ' (Striker)', state.strikerId));
+    outSelect.add(new Option(playerLabel(state.nonStrikerId) + ' (Non-Striker)', state.nonStrikerId));
+
+    const replacementPool = teamPlayers(state.battingTeamId).filter((player) => {
+      if (!player || !player.id) return false;
+      if (player.id === state.strikerId || player.id === state.nonStrikerId) return false;
+      if (dismissed.has(player.id)) return false;
+      return true;
+    });
+
+    replacementPool.forEach((player) => inSelect.add(new Option(player.name, player.id)));
+
+    if (!replacementPool.length) {
+      alert('No eligible replacement batter is available.');
+      return;
+    }
+
+    $('modal-declare').classList.add('active');
+  }
+
+  function applyDeclareBatsman() {
+    const outBatterId = $('declareOutSelect').value;
+    const inBatterId = $('declareInSelect').value;
+
+    if (!outBatterId || !inBatterId || outBatterId === inBatterId) {
+      alert('Select valid out and replacement batters.');
+      return;
+    }
+
+    saveState();
+
+    if (!state.batterOrders[inBatterId]) {
+      state.batterOrders[inBatterId] = state.nextBatterOrder++;
+    }
+
+    if (state.strikerId === outBatterId) {
+      state.strikerId = inBatterId;
+    } else if (state.nonStrikerId === outBatterId) {
+      state.nonStrikerId = inBatterId;
+    }
+
+    $('modal-declare').classList.remove('active');
+    updateScoringUI();
+  }
+
   function recordOut() {
+    const deliveryType = $('outDeliveryType').value || 'None';
     const runs = parseInt($('outRunsSelect').value, 10);
     const dismissed = $('outBatterSelect').value;
     $('modal-out').classList.remove('active');
-    recordBall(runs, 'None', true, dismissed);
+    recordBall(runs, deliveryType, true, dismissed);
   }
 
   function swapBatters() {

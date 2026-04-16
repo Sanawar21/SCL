@@ -31,25 +31,28 @@
 </section>
 
 <section class="landing-grid">
-  <article id="teams" class="card">
+  <article id="teams" class="card landing-card">
     <h2>Teams</h2>
     <p>Explore global teams across seasons, then drill into season-wise stats and squads.</p>
     <a class="btn btn-outline" href="{{ url_for('landing.teams_home') }}">Open Teams</a>
   </article>
 
-  <article id="matches" class="card">
+  <article id="matches" class="card landing-card">
     <h2>Matches</h2>
     <p>Browse fixtures and results across the season timeline.</p>
+    <a class="btn btn-outline" href="{{ url_for('landing.matches_home') }}">Open Matches</a>
   </article>
 
-  <article id="table" class="card">
+  <article id="table" class="card landing-card">
     <h2>Table</h2>
     <p>See points, net run rate, and standings in one place.</p>
+    <a class="btn btn-outline" href="{{ url_for('landing.league_table_home') }}">Open Table</a>
   </article>
 
-  <article id="finances" class="card">
+  <article id="finances" class="card landing-card">
     <h2>Finances</h2>
     <p>Review purse balances and budget snapshots.</p>
+    <a class="btn btn-outline" href="{{ url_for('landing.finances_home') }}">Open Finances</a>
   </article>
 </section>
 {% endblock %}

@@ -18,6 +18,8 @@ from app.rules import (
     PHASE_SETUP,
     ROLE_ADMIN,
     ROLE_MANAGER,
+    TIER_CREDIT_COST,
+    TOTAL_CREDITS,
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/auction/admin")
@@ -87,6 +89,83 @@ def _finance_team_rows(season_slug: str):
     return rows
 
 
+def _finance_player_rows(season_slug: str):
+    safe_slug = (season_slug or "").strip().lower()
+    if not safe_slug:
+        return []
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    if not season_store_manager.has_season(safe_slug):
+        return []
+
+    store = season_store_manager.get_store(safe_slug, create=False)
+    with store.read() as db:
+        teams = db.table("teams").all()
+        players = db.table("players").all()
+
+    players_by_id = {
+        (player.get("id") or "").strip(): player
+        for player in players
+        if (player.get("id") or "").strip()
+    }
+
+    rows = []
+    seen = set()
+    for team in teams:
+        team_id = (team.get("id") or "").strip()
+        team_name = (team.get("name") or team_id).strip() or team_id
+        if not team_id:
+            continue
+
+        for squad_name in ("players", "bench"):
+            for player_id in team.get(squad_name, []) or []:
+                safe_player_id = (player_id or "").strip()
+                if not safe_player_id:
+                    continue
+
+                dedupe_key = (safe_player_id, team_id)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+
+                player = players_by_id.get(safe_player_id, {})
+                player_name = (player.get("name") or safe_player_id).strip() or safe_player_id
+                tier = (player.get("tier") or "").strip().lower()
+                rows.append(
+                    {
+                        "id": safe_player_id,
+                        "name": player_name,
+                        "tier": tier,
+                        "credits": _safe_int(player.get("credits"), TIER_CREDIT_COST.get(tier, 0)),
+                        "from_team_id": team_id,
+                        "from_team_name": team_name,
+                        "squad": squad_name,
+                    }
+                )
+
+    rows.sort(key=lambda item: (item.get("name") or "").lower())
+    return rows
+
+
+def _finance_recalculate_credits(team: dict, players_by_id: dict):
+    manager_tier = (team.get("manager_tier") or "silver").strip().lower()
+    used = TIER_CREDIT_COST.get(manager_tier, 0)
+
+    for squad_name in ("players", "bench"):
+        for player_id in team.get(squad_name, []) or []:
+            safe_player_id = (player_id or "").strip()
+            if not safe_player_id:
+                continue
+            player = players_by_id.get(safe_player_id, {})
+            credits = _safe_int(player.get("credits"), 0)
+            if credits <= 0:
+                tier = (player.get("tier") or "").strip().lower()
+                credits = TIER_CREDIT_COST.get(tier, 0)
+            used += credits
+
+    return TOTAL_CREDITS - used
+
+
 def _finance_log_transaction(db, payload: dict):
     tx_table = db.table("finance_transactions")
     tx_table.insert(
@@ -132,7 +211,14 @@ def _build_unified_admin_context():
         if (season.get("slug") or "").strip().lower()
     }
 
+    finance_season_player_options = {
+        (season.get("slug") or "").strip().lower(): _finance_player_rows((season.get("slug") or "").strip().lower())
+        for season in finance_seasons
+        if (season.get("slug") or "").strip().lower()
+    }
+
     finance_selected_team_rows = finance_season_team_options.get(finance_selected_season, [])
+    finance_selected_player_rows = finance_season_player_options.get(finance_selected_season, [])
 
     available_manager_players = []
     team_manager_options = {}
@@ -214,7 +300,9 @@ def _build_unified_admin_context():
         "finance_seasons": finance_seasons,
         "finance_selected_season": finance_selected_season,
         "finance_season_team_options": finance_season_team_options,
+        "finance_season_player_options": finance_season_player_options,
         "finance_selected_team_rows": finance_selected_team_rows,
+        "finance_selected_player_rows": finance_selected_player_rows,
     }
 
 
@@ -668,6 +756,172 @@ def finances_transfer():
     )
 
 
+@unified_admin_bp.post("/admin/finances/player-transfer", endpoint="finances_player_transfer")
+def finances_player_transfer():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    season_slug = (request.form.get("season_slug") or "").strip().lower()
+    player_id = (request.form.get("player_id") or "").strip()
+    to_team_id = (request.form.get("to_team_id") or "").strip()
+    to_squad = (request.form.get("to_squad") or "players").strip().lower()
+    comment = (request.form.get("comment") or "").strip()
+
+    if not season_slug:
+        return jsonify({"ok": False, "error": "Season is required"}), 400
+    if not player_id:
+        return jsonify({"ok": False, "error": "Player is required"}), 400
+    if not to_team_id:
+        return jsonify({"ok": False, "error": "Target team is required"}), 400
+    if to_squad not in {"players", "bench"}:
+        return jsonify({"ok": False, "error": "Target squad must be players or bench"}), 400
+    if not comment:
+        return jsonify({"ok": False, "error": "Comment is required"}), 400
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    if not season_store_manager.has_season(season_slug):
+        return jsonify({"ok": False, "error": "Season not found"}), 404
+
+    store = season_store_manager.get_store(season_slug, create=False)
+    Team = Query()
+    Player = Query()
+
+    with store.write() as db:
+        teams_table = db.table("teams")
+        players_table = db.table("players")
+
+        teams = teams_table.all()
+        players = players_table.all()
+        players_by_id = {
+            (row.get("id") or "").strip(): row
+            for row in players
+            if (row.get("id") or "").strip()
+        }
+
+        player_row = players_by_id.get(player_id)
+        if not player_row:
+            return jsonify({"ok": False, "error": "Player not found"}), 404
+
+        to_team = teams_table.get(Team.id == to_team_id)
+        if not to_team:
+            return jsonify({"ok": False, "error": "Target team not found"}), 404
+
+        from_team = None
+        from_squad = ""
+        for team in teams:
+            for squad_name in ("players", "bench"):
+                if player_id in (team.get(squad_name) or []):
+                    from_team = team
+                    from_squad = squad_name
+                    break
+            if from_team:
+                break
+
+        if not from_team:
+            return jsonify({"ok": False, "error": "Player is not assigned to any team roster"}), 400
+
+        from_team_id = (from_team.get("id") or "").strip()
+        if not from_team_id:
+            return jsonify({"ok": False, "error": "Source team is invalid"}), 400
+        if from_team_id == to_team_id:
+            return jsonify({"ok": False, "error": "Source and target teams must be different"}), 400
+
+        if (from_team.get("manager_player_id") or "").strip() == player_id:
+            return jsonify({"ok": False, "error": "Manager player cannot be transferred"}), 400
+
+        from_players = list(from_team.get("players") or [])
+        from_bench = list(from_team.get("bench") or [])
+        to_players = list(to_team.get("players") or [])
+        to_bench = list(to_team.get("bench") or [])
+
+        from_players = [pid for pid in from_players if (pid or "").strip() != player_id]
+        from_bench = [pid for pid in from_bench if (pid or "").strip() != player_id]
+        to_players = [pid for pid in to_players if (pid or "").strip() != player_id]
+        to_bench = [pid for pid in to_bench if (pid or "").strip() != player_id]
+
+        if to_squad == "players":
+            to_players.append(player_id)
+        else:
+            to_bench.append(player_id)
+
+        from_team_updated = {
+            **from_team,
+            "players": from_players,
+            "bench": from_bench,
+        }
+        to_team_updated = {
+            **to_team,
+            "players": to_players,
+            "bench": to_bench,
+        }
+
+        from_team_updated["credits_remaining"] = _finance_recalculate_credits(from_team_updated, players_by_id)
+        to_team_updated["credits_remaining"] = _finance_recalculate_credits(to_team_updated, players_by_id)
+
+        teams_table.update(
+            {
+                "players": from_team_updated["players"],
+                "bench": from_team_updated["bench"],
+                "credits_remaining": from_team_updated["credits_remaining"],
+            },
+            Team.id == from_team_id,
+        )
+        teams_table.update(
+            {
+                "players": to_team_updated["players"],
+                "bench": to_team_updated["bench"],
+                "credits_remaining": to_team_updated["credits_remaining"],
+            },
+            Team.id == to_team_id,
+        )
+
+        players_table.update(
+            {
+                "sold_to": to_team_id,
+                "status": "sold",
+            },
+            Player.id == player_id,
+        )
+
+        player_name = (player_row.get("name") or player_id).strip() or player_id
+        from_team_name = (from_team.get("name") or from_team_id).strip() or from_team_id
+        to_team_name = (to_team.get("name") or to_team_id).strip() or to_team_id
+        _finance_log_transaction(
+            db,
+            {
+                "type": "player_transfer",
+                "season_slug": season_slug,
+                "created_by": (user.get("username") or "admin").strip() or "admin",
+                "comment": comment,
+                "amount": 0,
+                "player_id": player_id,
+                "player_name": player_name,
+                "from_team_id": from_team_id,
+                "from_team_name": from_team_name,
+                "to_team_id": to_team_id,
+                "to_team_name": to_team_name,
+                "from_squad": from_squad,
+                "to_squad": to_squad,
+            },
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "season_slug": season_slug,
+            "player_id": player_id,
+            "to_team_id": to_team_id,
+            "to_squad": to_squad,
+            "team_rows": _finance_team_rows(season_slug),
+            "player_rows": _finance_player_rows(season_slug),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/create-manager", endpoint="create_manager")
 @admin_bp.post("/create-manager")
 @login_required(role=ROLE_ADMIN)
 def create_manager():
@@ -766,6 +1020,7 @@ def create_manager():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/add-player", endpoint="add_player")
 @admin_bp.post("/add-player")
 @login_required(role=ROLE_ADMIN)
 def add_player():
@@ -799,12 +1054,13 @@ def add_player():
                 }
             )
         socketio.emit("state_update", auction_service.get_state())
-        return redirect(url_for("admin.dashboard"))
+        return redirect(url_for("unified_admin.dashboard", tab="auction"))
     except Exception as exc:  # noqa: BLE001
         flash(str(exc), "error")
-        return redirect(url_for("admin.dashboard"))
+        return redirect(url_for("unified_admin.dashboard", tab="auction"))
 
 
+@unified_admin_bp.post("/admin/update-player", endpoint="update_player")
 @admin_bp.post("/update-player")
 @login_required(role=ROLE_ADMIN)
 def update_player():
@@ -852,6 +1108,7 @@ def update_player():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/delete-player", endpoint="delete_player")
 @admin_bp.post("/delete-player")
 @login_required(role=ROLE_ADMIN)
 def delete_player():
@@ -897,6 +1154,7 @@ def delete_player():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/update-team", endpoint="update_team")
 @admin_bp.post("/update-team")
 @login_required(role=ROLE_ADMIN)
 def update_team():
@@ -1008,6 +1266,7 @@ def update_team():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/delete-team", endpoint="delete_team")
 @admin_bp.post("/delete-team")
 @login_required(role=ROLE_ADMIN)
 def delete_team():
@@ -1071,6 +1330,7 @@ def delete_team():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/set-team-participation", endpoint="set_team_participation")
 @admin_bp.post("/set-team-participation")
 @login_required(role=ROLE_ADMIN)
 def set_team_participation():
@@ -1100,6 +1360,7 @@ def set_team_participation():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/set-phase", endpoint="set_phase")
 @admin_bp.post("/set-phase")
 @login_required(role=ROLE_ADMIN)
 def set_phase():
@@ -1125,6 +1386,7 @@ def set_phase():
     return jsonify({"ok": True})
 
 
+@unified_admin_bp.post("/admin/nominate-next", endpoint="nominate_next")
 @admin_bp.post("/nominate-next")
 @login_required(role=ROLE_ADMIN)
 def nominate_next():
@@ -1146,6 +1408,7 @@ def nominate_next():
     return jsonify({"ok": True, "sold_result": sold_result, "player": player})
 
 
+@unified_admin_bp.post("/admin/previous-player", endpoint="previous_player")
 @admin_bp.post("/previous-player")
 @login_required(role=ROLE_ADMIN)
 def previous_player():
@@ -1158,6 +1421,7 @@ def previous_player():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/close-current", endpoint="close_current")
 @admin_bp.post("/close-current")
 @login_required(role=ROLE_ADMIN)
 def close_current():
@@ -1170,6 +1434,7 @@ def close_current():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/delete-bid", endpoint="delete_bid")
 @admin_bp.post("/delete-bid")
 @login_required(role=ROLE_ADMIN)
 def delete_bid():
@@ -1185,6 +1450,7 @@ def delete_bid():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@unified_admin_bp.post("/admin/complete-draft", endpoint="complete_draft")
 @admin_bp.post("/complete-draft")
 @login_required(role=ROLE_ADMIN)
 def complete_draft():
@@ -1197,6 +1463,7 @@ def complete_draft():
     return jsonify({"ok": True})
 
 
+@unified_admin_bp.get("/admin/session/list", endpoint="list_sessions")
 @admin_bp.get("/session/list")
 @login_required(role=ROLE_ADMIN)
 def list_sessions():
@@ -1218,6 +1485,7 @@ def list_sessions():
     return jsonify({"ok": True, "sessions": sessions})
 
 
+@unified_admin_bp.post("/admin/session/save", endpoint="save_session")
 @admin_bp.post("/session/save")
 @login_required(role=ROLE_ADMIN)
 def save_session():
@@ -1247,6 +1515,7 @@ def save_session():
     return jsonify({"ok": True, "file": snapshot_payload["file"], "overwritten": existed})
 
 
+@unified_admin_bp.post("/admin/publish-session", endpoint="publish_session")
 @admin_bp.post("/publish-session")
 @login_required(role=ROLE_ADMIN)
 def publish_session():
@@ -1347,6 +1616,7 @@ def publish_session():
     )
 
 
+@unified_admin_bp.post("/admin/session/load", endpoint="load_session")
 @admin_bp.post("/session/load")
 @login_required(role=ROLE_ADMIN)
 def load_session():

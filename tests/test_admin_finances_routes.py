@@ -97,13 +97,17 @@ class AdminSeasonFinancesRouteTests(unittest.TestCase):
             setattr(Config, key, old_value)
         self.temp_dir.cleanup()
 
-    def _seed_season(self, slug: str, teams: list[dict]):
+    def _seed_season(self, slug: str, teams: list[dict], players: list[dict] | None = None):
         season_store_manager = self.app.extensions["season_store_manager"]
         store = season_store_manager.get_store(slug, create=True)
         with store.write() as db:
             db.table("teams").truncate()
             if teams:
                 db.table("teams").insert_multiple(teams)
+            if players is not None:
+                db.table("players").truncate()
+                if players:
+                    db.table("players").insert_multiple(players)
 
     def _season_team(self, slug: str, team_id: str):
         season_store_manager = self.app.extensions["season_store_manager"]
@@ -118,6 +122,13 @@ class AdminSeasonFinancesRouteTests(unittest.TestCase):
         with store.read() as db:
             rows = db.table("finance_transactions").all()
         return rows
+
+    def _season_player(self, slug: str, player_id: str):
+        season_store_manager = self.app.extensions["season_store_manager"]
+        store = season_store_manager.get_store(slug, create=False)
+        with store.read() as db:
+            rows = db.table("players").search(lambda row: (row.get("id") or "").strip() == player_id)
+        return rows[0] if rows else {}
 
     def test_finance_add_remove_is_season_specific(self):
         self._seed_season(
@@ -334,6 +345,72 @@ class AdminSeasonFinancesRouteTests(unittest.TestCase):
         team_b_after_negative_transfer = self._season_team("season-1", "team-b")
         self.assertEqual(int(team_a_after_negative_transfer.get("purse_remaining") or 0), 1099)
         self.assertEqual(int(team_b_after_negative_transfer.get("purse_remaining") or 0), -979)
+
+    def test_finance_player_transfer_updates_rosters_and_player_owner(self):
+        self._seed_season(
+            "season-1",
+            [
+                {
+                    "id": "team-a",
+                    "name": "Team A",
+                    "manager_tier": "gold",
+                    "manager_player_id": "mgr-a",
+                    "purse_remaining": 100,
+                    "credits_remaining": 4,
+                    "players": ["p-1"],
+                    "bench": [],
+                },
+                {
+                    "id": "team-b",
+                    "name": "Team B",
+                    "manager_tier": "silver",
+                    "manager_player_id": "mgr-b",
+                    "purse_remaining": 90,
+                    "credits_remaining": 6,
+                    "players": [],
+                    "bench": [],
+                },
+            ],
+            players=[
+                {
+                    "id": "p-1",
+                    "name": "Player One",
+                    "tier": "gold",
+                    "credits": 2,
+                    "sold_to": "team-a",
+                    "status": "sold",
+                }
+            ],
+        )
+
+        transfer_response = self.client.post(
+            "/admin/finances/player-transfer",
+            data={
+                "season_slug": "season-1",
+                "player_id": "p-1",
+                "to_team_id": "team-b",
+                "to_squad": "players",
+                "comment": "Mid-season trade",
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(transfer_response.status_code, 200, transfer_response.get_data(as_text=True))
+
+        season_team_a = self._season_team("season-1", "team-a")
+        season_team_b = self._season_team("season-1", "team-b")
+        self.assertEqual(season_team_a.get("players") or [], [])
+        self.assertEqual(season_team_b.get("players") or [], ["p-1"])
+
+        player_row = self._season_player("season-1", "p-1")
+        self.assertEqual((player_row.get("sold_to") or "").strip(), "team-b")
+
+        transactions = self._season_transactions("season-1")
+        self.assertEqual(len(transactions), 1)
+        self.assertEqual((transactions[0].get("type") or "").strip(), "player_transfer")
+        self.assertEqual((transactions[0].get("player_id") or "").strip(), "p-1")
+        self.assertEqual((transactions[0].get("from_team_id") or "").strip(), "team-a")
+        self.assertEqual((transactions[0].get("to_team_id") or "").strip(), "team-b")
+        self.assertEqual((transactions[0].get("comment") or "").strip(), "Mid-season trade")
 
 
 if __name__ == "__main__":

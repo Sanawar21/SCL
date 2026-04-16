@@ -1306,6 +1306,12 @@ class ScorerService:
                     f"to {(row.get('to_team_name') or row.get('to_team_id') or '-').strip()}"
                 )
                 tx_label = "Transfer"
+            elif tx_type == "player_transfer":
+                player_name = (row.get("player_name") or row.get("player_id") or "-").strip() or "-"
+                from_team_name = (row.get("from_team_name") or row.get("from_team_id") or "-").strip() or "-"
+                to_team_name = (row.get("to_team_name") or row.get("to_team_id") or "-").strip() or "-"
+                summary = f"{player_name}: {from_team_name} to {to_team_name}"
+                tx_label = "Player Transfer"
             else:
                 operation = (row.get("operation") or "adjust").strip().lower()
                 tx_label = "Add" if operation == "add" else "Remove" if operation == "remove" else "Adjust"
@@ -1975,7 +1981,7 @@ class ScorerService:
             except UnicodeDecodeError:
                 text = payload.decode("utf-8")
 
-        rows = self._parse_match_csv_rows(text, file_name)
+        rows, substitution_log_player_ins = self._parse_match_csv_rows(text, file_name)
         normalized_rows = self._normalize_rows_to_global_ids(rows, safe_season_slug)
 
         safe_match_override = (match_id_override or "").strip()
@@ -2012,6 +2018,7 @@ class ScorerService:
             uploaded_by=(uploaded_by or "admin"),
             match_date=(match_date or "").strip(),
             include_in_fantasy_points=bool(include_in_fantasy_points),
+            substitution_log_player_ins=substitution_log_player_ins,
         )
         return self._persist_match_stats(derived)
 
@@ -2058,25 +2065,59 @@ class ScorerService:
         }
 
     def _parse_match_csv_rows(self, text: str, file_name: str):
-        reader = csv.DictReader(io.StringIO(text))
-        if not reader.fieldnames:
+        reader = csv.reader(io.StringIO(text))
+        try:
+            header = next(reader)
+        except StopIteration as exc:
+            raise ValueError(f"{file_name}: invalid CSV header") from exc
+
+        if not header:
             raise ValueError(f"{file_name}: invalid CSV header")
 
-        missing = [column for column in self.CSV_REQUIRED_COLUMNS if column not in reader.fieldnames]
+        missing = [column for column in self.CSV_REQUIRED_COLUMNS if column not in header]
         if missing:
             raise ValueError(f"{file_name}: missing columns: {', '.join(missing)}")
 
+        width = len(header)
+
+        def to_row(values):
+            padded = list(values[:width]) + [""] * max(0, width - len(values))
+            return {header[idx]: (padded[idx] or "").strip() for idx in range(width)}
+
         rows = []
-        for row in reader:
+        substitution_log_player_ins = set()
+        in_substitution_log = False
+
+        for values in reader:
+            if not values or not any((cell or "").strip() for cell in values):
+                continue
+
+            first_cell = (values[0] or "").strip()
+            if first_cell == "Substitution Log":
+                in_substitution_log = True
+                continue
+
+            if in_substitution_log:
+                # Format in exported scorer CSV:
+                # "Step","Playing Team","Player Out","Player In","From Team"
+                # Skip the header row and collect valid Player In values.
+                if first_cell.lower() == "step":
+                    continue
+                player_in = (values[3] if len(values) > 3 else "").strip()
+                if player_in and player_in.lower() != "none":
+                    substitution_log_player_ins.add(player_in)
+                continue
+
+            row = to_row(values)
             match_id = (row.get("Match ID") or "").strip()
-            if not match_id or match_id == "Substitution Log":
-                break
-            rows.append({key: (value or "").strip() for key, value in row.items()})
+            if not match_id:
+                continue
+            rows.append(row)
 
         if not rows:
             raise ValueError(f"{file_name}: no delivery rows found")
 
-        return rows
+        return rows, substitution_log_player_ins
 
     def _build_global_identity_maps(self, season_slug: str):
         safe_season_slug = (season_slug or "").strip().lower()
@@ -2471,6 +2512,7 @@ class ScorerService:
         uploaded_by: str,
         match_date: str = "",
         include_in_fantasy_points: bool = True,
+        substitution_log_player_ins=None,
     ):
         first = rows[0]
         match_id = (first.get("Match ID") or "").strip() or "unknown"
@@ -2663,12 +2705,19 @@ class ScorerService:
                     dismissed_player["dismissed"] = 1
 
         # Build fantasy scores using the same logic as scoreCard.py.
-        fantasy_scores = self._calculate_fantasy_scores(rows, player_rows)
+        fantasy_scores = self._calculate_fantasy_scores(
+            rows,
+            player_rows,
+            substitution_log_player_ins=substitution_log_player_ins,
+        )
         for player_id, fantasy in fantasy_scores.items():
             if player_id not in player_rows:
                 continue
             # Actual fantasy points include a flat per-match bonus over calculated score.
-            actual_score = self._round_nearest_int(float(fantasy.get("score", 0.0)) + self.FANTASY_MATCH_BONUS_POINTS, 0)
+            if bool(fantasy.get("is_substitute", False)):
+                actual_score = 0
+            else:
+                actual_score = self._round_nearest_int(float(fantasy.get("score", 0.0)) + self.FANTASY_MATCH_BONUS_POINTS, 0)
             player_rows[player_id]["fantasy_score"] = actual_score
             player_rows[player_id]["fantasy_bat_points"] = fantasy.get("bat_pts", 0.0)
             player_rows[player_id]["fantasy_bowl_points"] = fantasy.get("bowl_pts", 0.0)
@@ -2773,10 +2822,12 @@ class ScorerService:
             return upset_mult if bat_val < bowl_val else expected_mult
         return upset_mult if bowl_val < bat_val else expected_mult
 
-    def _calculate_fantasy_scores(self, rows, player_rows: dict):
+    def _calculate_fantasy_scores(self, rows, player_rows: dict, substitution_log_player_ins=None):
         players = {}
         substitute_players = set()
         observed_ids_by_name = {}
+
+        substitution_log_player_ins = substitution_log_player_ins or set()
 
         for row in rows:
             batter_name = (row.get("Batter") or "").strip()
@@ -2804,6 +2855,12 @@ class ScorerService:
                 incoming_id = observed_ids_by_name.get(self._norm(incoming_name), "")
                 if incoming_id:
                     substitute_players.add(incoming_id)
+
+        # Also honor substitutions reported only in the CSV's trailing Substitution Log section.
+        for incoming_name in substitution_log_player_ins:
+            incoming_id = observed_ids_by_name.get(self._norm(incoming_name), "")
+            if incoming_id:
+                substitute_players.add(incoming_id)
 
         for row in rows:
             batter_id = (row.get("Batter ID") or "").strip()
@@ -2896,10 +2953,12 @@ class ScorerService:
             players[bowler_id]["bowling_points"] += bowl_points
 
         raw_scores = {}
+        substitute_suppressed = set()
         for player_id, stats in players.items():
             total_balls = stats["balls_faced"] + stats["balls_bowled"]
             if player_id in substitute_players:
                 raw_scores[player_id] = 0.0
+                substitute_suppressed.add(player_id)
             elif total_balls == 0 and stats["batting_points"] == 0.0 and stats["bowling_points"] == 0.0:
                 continue
             else:
@@ -2915,6 +2974,7 @@ class ScorerService:
                 "team": row_meta.get("team_id") or stats.get("team", ""),
                 "bat_pts": players.get(player_id, {}).get("batting_points", 0.0),
                 "bowl_pts": players.get(player_id, {}).get("bowling_points", 0.0),
+                "is_substitute": player_id in substitute_suppressed,
             }
 
         return results

@@ -4,7 +4,7 @@
   <div class="card">
     <div class="row-between">
       <h2>Admin Control Room</h2>
-      <a class="btn btn-outline" href="{{ url_for('admin.admin_logout') }}">Logout</a>
+      <a class="btn btn-outline" href="{{ url_for('unified_admin.admin_logout') }}">Logout</a>
     </div>
     <p>Phase: <span class="badge" id="phaseText">{{ state.phase }}</span></p>
 
@@ -135,7 +135,7 @@
 
   <div class="card">
     <h3>Add Player</h3>
-    <form method="post" action="{{ url_for('admin.add_player') }}" class="grid-2">
+    <form method="post" action="{{ url_for('unified_admin.add_player') }}" class="grid-2">
       <input name="name" placeholder="player name" required>
       <select name="tier">
         <option value="silver">Silver</option>

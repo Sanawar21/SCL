@@ -143,7 +143,7 @@
 
     <div class="card">
       <h3>Add Player</h3>
-      <form method="post" action="{{ url_for('admin.add_player') }}" class="grid-2">
+      <form method="post" action="{{ url_for('unified_admin.add_player') }}" class="grid-2">
         <input name="name" placeholder="player name" required>
         <select name="tier">
           <option value="silver">Silver</option>
@@ -347,6 +347,35 @@
         </select>
         <input name="comment" placeholder="Comment (required)" required>
         <button class="btn btn-secondary" type="submit">Transfer Money</button>
+      </form>
+
+      <hr>
+
+      <form id="financePlayerTransferForm" class="grid-2">
+        <select name="season_slug" required>
+          <option value="">Select season</option>
+          {% for season in finance_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <select name="player_id" required>
+          <option value="">Select player</option>
+          {% for row in finance_selected_player_rows %}
+          <option value="{{ row.id }}">{{ row.name }} ({{ row.from_team_name }}, {{ 'Active' if row.squad == 'players' else 'Bench' }})</option>
+          {% endfor %}
+        </select>
+        <select name="to_team_id" required>
+          <option value="">To team</option>
+          {% for row in finance_selected_team_rows %}
+          <option value="{{ row.id }}">{{ row.name }}</option>
+          {% endfor %}
+        </select>
+        <select name="to_squad" required>
+          <option value="players">Move to Active Squad</option>
+          <option value="bench">Move to Bench</option>
+        </select>
+        <input name="comment" placeholder="Comment (required)" required>
+        <button class="btn" type="submit">Transfer Player</button>
       </form>
 
       <p id="financeStatus" class="mono"></p>
@@ -695,6 +724,7 @@
 <script id="teamManagerOptions" type="application/json">{{ team_manager_options|tojson }}</script>
 <script id="scorerSeasonTeamOptions" type="application/json">{{ scorer_season_team_options|tojson }}</script>
 <script id="financeSeasonTeamOptions" type="application/json">{{ finance_season_team_options|tojson }}</script>
+<script id="financeSeasonPlayerOptions" type="application/json">{{ finance_season_player_options|tojson }}</script>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>

@@ -227,6 +227,45 @@ class ScorerCsvImportRouteTests(unittest.TestCase):
         self.assertTrue(all(abs(float(row.get("fantasy_points") or 0.0)) == 0.0 for row in team_global_rows))
         self.assertTrue(all(abs(float(row.get("fantasy_score") or 0.0)) == 0.0 for row in player_global_rows))
 
+    def test_substitution_log_suppresses_fantasy_for_subbed_in_players_only(self):
+        self._register_match("M70")
+        csv_payload = "\n".join(
+            [
+                '"Match ID","Match","Venue","Scorer Version","Substitutions Applied","Substitution Details","Innings Order","Batting Team","Batting Team ID","Batting Manager ID","Over Number","Ball Number","Valid Ball?","Batter","Batter ID","Batter Order","Non Strike Batter","Non Strike Batter ID","Bowler","Bowler ID","Bowling Team","Bowling Team ID","Bowling Manager ID","Runs Bat","Runs Extra","Extras Type","Dismissed Batter","Dismissed Batter ID","Progressive Runs","Progressive Wickets","Match Toss","Match Result"',
+                '"M70","Alpha XI vs Beta XI","Old Venue","1.1.0","1","None","1","Alpha XI","t-local-1","m-local-1","0","1","Yes","Evan","p-local-e","1","Bob","p-local-b","Carl","p-local-c","Beta XI","t-local-2","m-local-2","4","0","None","None","","4","0","Alpha XI","Alpha XI won"',
+                '"M70","Alpha XI vs Beta XI","Old Venue","1.1.0","1","None","1","Alpha XI","t-local-1","m-local-1","0","2","Yes","Evan","p-local-e","1","Bob","p-local-b","Carl","p-local-c","Beta XI","t-local-2","m-local-2","1","0","None","None","","5","0","Alpha XI","Alpha XI won"',
+                '"M70","Alpha XI vs Beta XI","Old Venue","1.1.0","1","None","2","Beta XI","t-local-2","m-local-2","0","1","Yes","Carl","p-local-c","1","Dana","p-local-d","Bob","p-local-b","Alpha XI","t-local-1","m-local-1","1","0","None","None","","1","0","Alpha XI","Alpha XI won"',
+                '',
+                '"Substitution Log"',
+                '"Step","Playing Team","Player Out","Player In","From Team"',
+                '"1","Alpha XI","Alice","Evan","None"',
+            ]
+        )
+
+        response = self.client.post(
+            "/admin/scorer/import",
+            data={
+                "season_slug": "season-1",
+                "match_csvs": (io.BytesIO(csv_payload.encode("utf-8")), "match_M70.csv"),
+            },
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        body = response.get_json()
+        self.assertTrue(body.get("ok"), body)
+
+        global_tables = self.app.extensions["global_league_store"].export_tables()
+        player_match_rows = [row for row in global_tables.get("scorer_player_match_stats", []) if row.get("match_id") == "M70"]
+
+        evan_row = next((row for row in player_match_rows if (row.get("player_name") or "") == "Evan"), None)
+        self.assertIsNotNone(evan_row)
+        self.assertGreater(int(evan_row.get("runs") or 0), 0)
+        self.assertEqual(int(evan_row.get("fantasy_score") or 0), 0)
+
+        non_subbed_rows = [row for row in player_match_rows if (row.get("player_name") or "") != "Evan"]
+        self.assertTrue(any(abs(int(row.get("fantasy_score") or 0)) > 0 for row in non_subbed_rows))
+
     def test_duplicate_match_requires_confirmation_before_overwrite(self):
         self._register_match("M44")
         csv_payload = self._sample_csv_payload(match_id="M44")

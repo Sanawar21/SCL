@@ -3,12 +3,13 @@
 {% block topbar_brand %}SCL Hub{% endblock %}
 
 {% block topbar_nav %}
-  <a id="nav-fantasy" data-default-href="{{ url_for('fantasy.fantasy_home') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
-  <a id="nav-auction" data-default-href="{{ url_for('viewer.home') }}" href="{{ url_for('viewer.home') }}">Auction</a>
+  <a id="nav-fantasy" data-default-href="{{ url_for('fantasy.fantasy_home') }}" data-season-href-template="{{ url_for('fantasy.fantasy_season', season_slug='__SEASON__') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+  <a id="nav-auction" data-default-href="{{ url_for('viewer.home') }}" data-season-href-template="{{ url_for('viewer.published_view', slug='__SEASON__') }}" href="{{ url_for('viewer.home') }}">Auction</a>
   <a href="{{ url_for('landing.teams_home') }}">Teams</a>
   <a href="{{ url_for('landing.matches_home') }}">Matches</a>
-  <a id="nav-table" data-default-href="{{ url_for('landing.league_table_home') }}" href="{{ url_for('landing.league_table_home') }}">Table</a>
-  <a id="nav-finances" data-default-href="{{ url_for('landing.finances_home') }}" href="{{ url_for('landing.finances_home') }}">Finances</a>
+  <a id="nav-table" data-default-href="{{ url_for('landing.league_table_home') }}" data-season-href-template="{{ url_for('landing.league_table_by_season', season_slug='__SEASON__') }}" href="{{ url_for('landing.league_table_home') }}">Table</a>
+  <a id="nav-finances" data-default-href="{{ url_for('landing.finances_home') }}" data-season-href-template="{{ url_for('landing.finances_by_season', season_slug='__SEASON__') }}" href="{{ url_for('landing.finances_home') }}">Finances</a>
+  <a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
   <label class="season-picker" for="season-select">
     <select id="season-select" aria-label="Select season">
       {% for season in seasons %}
@@ -67,11 +68,16 @@
       const auctionDefault = auctionLink.dataset.defaultHref;
       const tableDefault = tableLink.dataset.defaultHref;
       const financesDefault = financesLink.dataset.defaultHref;
+      const fantasyTemplate = fantasyLink.dataset.seasonHrefTemplate || "";
+      const auctionTemplate = auctionLink.dataset.seasonHrefTemplate || "";
+      const tableTemplate = tableLink.dataset.seasonHrefTemplate || "";
+      const financesTemplate = financesLink.dataset.seasonHrefTemplate || "";
+      const encodedSeason = encodeURIComponent(season || "");
 
-      fantasyLink.href = season ? `/fantasy/${encodeURIComponent(season)}` : fantasyDefault;
-      auctionLink.href = season ? `/auction/${encodeURIComponent(season)}` : auctionDefault;
-      tableLink.href = season ? `/table/${encodeURIComponent(season)}` : tableDefault;
-      financesLink.href = season ? `/finances/${encodeURIComponent(season)}` : financesDefault;
+      fantasyLink.href = season && fantasyTemplate ? fantasyTemplate.replace("__SEASON__", encodedSeason) : fantasyDefault;
+      auctionLink.href = season && auctionTemplate ? auctionTemplate.replace("__SEASON__", encodedSeason) : auctionDefault;
+      tableLink.href = season && tableTemplate ? tableTemplate.replace("__SEASON__", encodedSeason) : tableDefault;
+      financesLink.href = season && financesTemplate ? financesTemplate.replace("__SEASON__", encodedSeason) : financesDefault;
 
       const url = new URL(window.location.href);
       if (season) {

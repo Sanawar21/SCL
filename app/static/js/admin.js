@@ -26,6 +26,7 @@ const scorerImportStatus = document.getElementById("scorerImportStatus");
 const scorerImportSummary = document.getElementById("scorerImportSummary");
 const financeAdjustForm = document.getElementById("financeAdjustForm");
 const financeTransferForm = document.getElementById("financeTransferForm");
+const financePlayerTransferForm = document.getElementById("financePlayerTransferForm");
 const financeStatus = document.getElementById("financeStatus");
 const seasonFinanceTable = document.getElementById("seasonFinanceTable");
 const adminDashboard = document.getElementById("adminDashboard");
@@ -41,6 +42,10 @@ const financeSeasonTeamOptionsNode = document.getElementById("financeSeasonTeamO
 const financeSeasonTeamOptions = financeSeasonTeamOptionsNode
   ? JSON.parse(financeSeasonTeamOptionsNode.textContent || "{}")
   : {};
+const financeSeasonPlayerOptionsNode = document.getElementById("financeSeasonPlayerOptions");
+const financeSeasonPlayerOptions = financeSeasonPlayerOptionsNode
+  ? JSON.parse(financeSeasonPlayerOptionsNode.textContent || "{}")
+  : {};
 
 function wireDeleteBidButtons() {
   document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
@@ -54,7 +59,7 @@ function wireDeleteBidButtons() {
       }
       const fd = new FormData();
       fd.append("bid_id", bidId);
-      const res = await postForm("/auction/admin/delete-bid", fd);
+      const res = await postForm("/admin/delete-bid", fd);
       if (!res.ok) {
         alert(res.error || "Unable to delete bid");
       }
@@ -71,7 +76,7 @@ async function refreshSessions() {
     return;
   }
 
-  const response = await fetch("/auction/admin/session/list");
+  const response = await fetch("/admin/session/list");
   const result = await response.json();
   if (!result.ok) {
     if (sessionStatus) {
@@ -209,6 +214,11 @@ function financeRowsForSeason(seasonSlug) {
   return Array.isArray(financeSeasonTeamOptions[key]) ? financeSeasonTeamOptions[key] : [];
 }
 
+function financePlayersForSeason(seasonSlug) {
+  const key = String(seasonSlug || "").toLowerCase();
+  return Array.isArray(financeSeasonPlayerOptions[key]) ? financeSeasonPlayerOptions[key] : [];
+}
+
 function populateFinanceTeamSelect(selectEl, rows, placeholder) {
   if (!selectEl) {
     return;
@@ -226,6 +236,32 @@ function populateFinanceTeamSelect(selectEl, rows, placeholder) {
     const option = document.createElement("option");
     option.value = row.id || "";
     option.textContent = `${row.name || row.id || "Team"} (Purse: ${row.purse_remaining ?? 0})`;
+    selectEl.appendChild(option);
+  });
+
+  if (currentValue) {
+    selectEl.value = currentValue;
+  }
+}
+
+function populateFinancePlayerSelect(selectEl, rows, placeholder) {
+  if (!selectEl) {
+    return;
+  }
+
+  const currentValue = selectEl.value;
+  selectEl.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = placeholder || "Select player";
+  selectEl.appendChild(defaultOption);
+
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.id || "";
+    const squadLabel = row.squad === "bench" ? "Bench" : "Active";
+    option.textContent = `${row.name || row.id || "Player"} (${row.from_team_name || row.from_team_id || "-"}, ${squadLabel})`;
     selectEl.appendChild(option);
   });
 
@@ -261,31 +297,40 @@ function renderSeasonFinanceTable(rows) {
 function setFinanceSeason(seasonSlug) {
   const safeSeason = String(seasonSlug || "").toLowerCase();
   const rows = financeRowsForSeason(safeSeason);
+  const playerRows = financePlayersForSeason(safeSeason);
 
   const adjustSeasonSelect = financeAdjustForm?.querySelector('select[name="season_slug"]');
   const transferSeasonSelect = financeTransferForm?.querySelector('select[name="season_slug"]');
+  const playerTransferSeasonSelect = financePlayerTransferForm?.querySelector('select[name="season_slug"]');
   if (adjustSeasonSelect && adjustSeasonSelect.value !== safeSeason) {
     adjustSeasonSelect.value = safeSeason;
   }
   if (transferSeasonSelect && transferSeasonSelect.value !== safeSeason) {
     transferSeasonSelect.value = safeSeason;
   }
+  if (playerTransferSeasonSelect && playerTransferSeasonSelect.value !== safeSeason) {
+    playerTransferSeasonSelect.value = safeSeason;
+  }
 
   populateFinanceTeamSelect(financeAdjustForm?.querySelector('select[name="team_id"]'), rows, "Select team");
   populateFinanceTeamSelect(financeTransferForm?.querySelector('select[name="from_team_id"]'), rows, "From team");
   populateFinanceTeamSelect(financeTransferForm?.querySelector('select[name="to_team_id"]'), rows, "To team");
+  populateFinanceTeamSelect(financePlayerTransferForm?.querySelector('select[name="to_team_id"]'), rows, "To team");
+  populateFinancePlayerSelect(financePlayerTransferForm?.querySelector('select[name="player_id"]'), playerRows, "Select player");
   renderSeasonFinanceTable(rows);
 }
 
-if (financeAdjustForm || financeTransferForm) {
+if (financeAdjustForm || financeTransferForm || financePlayerTransferForm) {
   const initialSeason = financeSelectedSeason
     || financeAdjustForm?.querySelector('select[name="season_slug"]')?.value
     || financeTransferForm?.querySelector('select[name="season_slug"]')?.value
+    || financePlayerTransferForm?.querySelector('select[name="season_slug"]')?.value
     || "";
   setFinanceSeason(initialSeason);
 
   const adjustSeasonSelect = financeAdjustForm?.querySelector('select[name="season_slug"]');
   const transferSeasonSelect = financeTransferForm?.querySelector('select[name="season_slug"]');
+  const playerTransferSeasonSelect = financePlayerTransferForm?.querySelector('select[name="season_slug"]');
 
   if (adjustSeasonSelect) {
     adjustSeasonSelect.addEventListener("change", () => {
@@ -296,6 +341,12 @@ if (financeAdjustForm || financeTransferForm) {
   if (transferSeasonSelect) {
     transferSeasonSelect.addEventListener("change", () => {
       setFinanceSeason(transferSeasonSelect.value || "");
+    });
+  }
+
+  if (playerTransferSeasonSelect) {
+    playerTransferSeasonSelect.addEventListener("change", () => {
+      setFinanceSeason(playerTransferSeasonSelect.value || "");
     });
   }
 }
@@ -361,6 +412,39 @@ if (financeTransferForm) {
     setFinanceSeason(seasonSlug);
     if (financeStatus) {
       financeStatus.textContent = `Transferred ${amount} in ${seasonSlug}.`;
+    }
+  });
+}
+
+if (financePlayerTransferForm) {
+  financePlayerTransferForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = new FormData(financePlayerTransferForm);
+    const seasonSlug = String(payload.get("season_slug") || "").trim().toLowerCase();
+    const playerId = String(payload.get("player_id") || "").trim();
+    const toTeamId = String(payload.get("to_team_id") || "").trim();
+    const comment = String(payload.get("comment") || "").trim();
+
+    if (!seasonSlug || !playerId || !toTeamId || !comment) {
+      if (financeStatus) {
+        financeStatus.textContent = "Error: season, player, target team, and comment are required.";
+      }
+      return;
+    }
+
+    const res = await postForm("/admin/finances/player-transfer", payload);
+    if (!res.ok) {
+      if (financeStatus) {
+        financeStatus.textContent = `Error: ${res.error || "Unable to transfer player"}`;
+      }
+      return;
+    }
+
+    financeSeasonTeamOptions[seasonSlug] = Array.isArray(res.team_rows) ? res.team_rows : [];
+    financeSeasonPlayerOptions[seasonSlug] = Array.isArray(res.player_rows) ? res.player_rows : [];
+    setFinanceSeason(seasonSlug);
+    if (financeStatus) {
+      financeStatus.textContent = "Player transfer completed.";
     }
   });
 }
@@ -451,7 +535,7 @@ if (managerForm) {
       return;
     }
     const data = new FormData(managerForm);
-    const res = await postForm("/auction/admin/create-manager", data);
+    const res = await postForm("/admin/create-manager", data);
     credResult.textContent = res.ok
       ? `Team account created (${res.username}). Temporary password: ${res.temporary_password}`
       : `Error: ${res.error}`;
@@ -464,7 +548,7 @@ if (managerForm) {
 if (phaseForm) {
   phaseForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await postForm("/auction/admin/set-phase", new FormData(phaseForm));
+    const res = await postForm("/admin/set-phase", new FormData(phaseForm));
     if (!res.ok) {
       alert(res.error || "Phase update failed");
     }
@@ -473,7 +557,7 @@ if (phaseForm) {
 
 if (nominateBtn) {
   nominateBtn.addEventListener("click", async () => {
-    const res = await postForm("/auction/admin/nominate-next", new FormData());
+    const res = await postForm("/admin/nominate-next", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to sell current lot and nominate next");
     }
@@ -482,7 +566,7 @@ if (nominateBtn) {
 
 if (previousBtn) {
   previousBtn.addEventListener("click", async () => {
-    const res = await postForm("/auction/admin/previous-player", new FormData());
+    const res = await postForm("/admin/previous-player", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to go to previous player");
     }
@@ -491,7 +575,7 @@ if (previousBtn) {
 
 if (closeBtn) {
   closeBtn.addEventListener("click", async () => {
-    const res = await postForm("/auction/admin/close-current", new FormData());
+    const res = await postForm("/admin/close-current", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to close lot");
     }
@@ -503,7 +587,7 @@ if (completeBtn) {
     if (!confirm("Complete draft and run incomplete-team penalty?")) {
       return;
     }
-    const res = await postForm("/auction/admin/complete-draft", new FormData());
+    const res = await postForm("/admin/complete-draft", new FormData());
     if (!res.ok) {
       alert(res.error || "Unable to complete draft");
     }
@@ -515,7 +599,7 @@ if (saveSessionBtn) {
     const fd = new FormData();
     fd.append("session_name", (sessionNameInput?.value || "").trim());
     fd.append("overwrite", overwriteSessionCheckbox?.checked ? "true" : "false");
-    const res = await postForm("/auction/admin/session/save", fd);
+    const res = await postForm("/admin/session/save", fd);
     if (!res.ok) {
       sessionStatus.textContent = `Error: ${res.error || "Unable to save session"}`;
       return;
@@ -540,7 +624,7 @@ if (publishSessionBtn) {
       return;
     }
 
-    const res = await postForm("/auction/admin/publish-session", fd);
+    const res = await postForm("/admin/publish-session", fd);
     if (!res.ok) {
       if (publishStatus) {
         publishStatus.textContent = `Error: ${res.error || "Unable to publish session"}`;
@@ -573,7 +657,7 @@ if (loadSessionBtn) {
 
     const fd = new FormData();
     fd.append("session_file", selected);
-    const res = await postForm("/auction/admin/session/load", fd);
+    const res = await postForm("/admin/session/load", fd);
     if (!res.ok) {
       sessionStatus.textContent = `Error: ${res.error || "Unable to load session"}`;
       return;
@@ -823,7 +907,7 @@ document.addEventListener("click", async (event) => {
     fd.append("name", name);
     fd.append("tier", tier);
     fd.append("speciality", speciality);
-    const res = await postForm("/auction/admin/update-player", fd);
+    const res = await postForm("/admin/update-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update player");
       return;
@@ -844,7 +928,7 @@ document.addEventListener("click", async (event) => {
 
     const fd = new FormData();
     fd.append("player_id", playerId);
-    const res = await postForm("/auction/admin/delete-player", fd);
+    const res = await postForm("/admin/delete-player", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete player");
       return;
@@ -872,7 +956,7 @@ document.addEventListener("click", async (event) => {
     const fd = new FormData();
     fd.append("team_id", teamId);
     fd.append("is_active", nextActive ? "true" : "false");
-    const res = await postForm("/auction/admin/set-team-participation", fd);
+    const res = await postForm("/admin/set-team-participation", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update team participation");
       return;
@@ -907,7 +991,7 @@ document.addEventListener("click", async (event) => {
     fd.append("team_id", teamId);
     fd.append("team_name", teamName);
     fd.append("manager_player_id", managerPlayerId);
-    const res = await postForm("/auction/admin/update-team", fd);
+    const res = await postForm("/admin/update-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to update team");
       return;
@@ -928,7 +1012,7 @@ document.addEventListener("click", async (event) => {
 
     const fd = new FormData();
     fd.append("team_id", teamId);
-    const res = await postForm("/auction/admin/delete-team", fd);
+    const res = await postForm("/admin/delete-team", fd);
     if (!res.ok) {
       alert(res.error || "Unable to delete team");
       return;

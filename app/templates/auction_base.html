@@ -10,7 +10,10 @@
 <body>
   <header class="topbar">
     <div class="brand">{% block topbar_brand %}SCL Auction{% endblock %}</div>
-    <nav>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <nav id="mainNav">
       {% block topbar_nav %}
       <a href="{{ url_for('landing.index') }}">Root</a>
       <a href="{{ url_for('viewer.home') }}">Home</a>
@@ -38,5 +41,16 @@
   </main>
 
   {% block scripts %}{% endblock %}
+  <script>
+    (function () {
+      var toggle = document.getElementById('navToggle');
+      var nav    = document.getElementById('mainNav');
+      if (!toggle || !nav) return;
+      toggle.addEventListener('click', function () {
+        var open = nav.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    })();
+  </script>
 </body>
 </html>

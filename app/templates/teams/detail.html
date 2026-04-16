@@ -76,7 +76,7 @@
   <div class="card">
     <h3>Season Squads</h3>
     {% for season in profile.squads_by_season %}
-    <div class="card" style="margin-top: 0.75rem; background: #f8fbff; border: 1px solid #d9e5ff;">
+    <div class="card-nested">
       <h4 style="margin-bottom: 0.35rem;">{{ season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
       <p style="margin: 0 0 0.65rem;"><strong>Manager:</strong>
         {% if season.manager_player_slug %}

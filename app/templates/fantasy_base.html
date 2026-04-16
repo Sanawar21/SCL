@@ -9,7 +9,10 @@
 <body>
   <header class="topbar">
     <div class="brand">SCL Fantasy League</div>
-    <nav>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <nav id="mainNav">
       <a href="{{ url_for('landing.index') }}">Root</a>
       <a href="{{ url_for('fantasy.fantasy_home') }}">Home</a>
       <a href="{{ url_for('fantasy.fantasy_points_system') }}">Points System</a>
@@ -31,5 +34,16 @@
   </main>
 
   {% block scripts %}{% endblock %}
+  <script>
+    (function () {
+      var toggle = document.getElementById('navToggle');
+      var nav    = document.getElementById('mainNav');
+      if (!toggle || !nav) return;
+      toggle.addEventListener('click', function () {
+        var open = nav.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    })();
+  </script>
 </body>
 </html>

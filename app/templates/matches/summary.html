@@ -34,7 +34,7 @@
     <h3>Match Innings</h3>
 
     {% for section in summary.team_sections %}
-    <div class="card" style="margin-top: 1rem; background: #f8fbff; border: 1px solid #d9e5ff;">
+    <div class="card-nested">
       <h4 style="margin-bottom: 0.35rem;">{{ section.team_name }}</h4>
       <p style="margin: 0 0 0.75rem;"><strong>Total:</strong> {{ section.total }}{% if section.team.result %} | <strong>Result:</strong> {{ section.team.result }}{% endif %}</p>
 

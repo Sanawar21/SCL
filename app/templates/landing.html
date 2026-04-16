@@ -19,33 +19,318 @@
 {% endblock %}
 
 {% block content %}
-<section class="card hero landing-hero">
-  <h1>Section C League</h1>
-  <p>One home for Fantasy and Auction views, with season-specific navigation.</p>
-</section>
+<style>
+  /* Premium SaaS UI Styles */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
 
-<section class="landing-grid">
-  <article id="teams" class="card">
-    <h2>Teams</h2>
-    <p>Explore global teams across seasons, then drill into season-wise stats and squads.</p>
-    <a class="btn btn-outline" href="{{ url_for('landing.teams_home') }}">Open Teams</a>
-  </article>
+  :root {
+    --bg-dark: #0a0a0a;
+    --text-main: #ffffff;
+    --text-muted: #a1a1aa;
+    --brand-primary: #00c9a7;
+    --brand-dark: #00a887;
+    --brand-glow: rgba(0, 201, 167, 0.28);
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+  }
 
-  <article id="matches" class="card">
-    <h2>Matches</h2>
-    <p>Browse fixtures and results across the season timeline.</p>
-  </article>
+  /* 
+    BREAKOUT TRICK: 
+    Forces this container to ignore parent paddings/margins 
+    and span the full 100vw of the screen.
+  */
+  .scl-body-override {
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    right: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
+    
+    /* PULL UP NEGATIVE MARGIN to close the gap beneath the navbar */
+    margin-top: -2rem; /* Adjust this value if the gap is smaller/larger */
+    
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    overflow-x: hidden;
+    padding-bottom: 4rem;
+  }
 
-  <article id="table" class="card">
-    <h2>Table</h2>
-    <p>See points, net run rate, and standings in one place.</p>
-  </article>
+  /* Animated Background Blobs */
+  .hero-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    overflow: hidden;
+    background: radial-gradient(circle at top center, #18181b, #0a0a0a 70%);
+  }
 
-  <article id="finances" class="card">
-    <h2>Finances</h2>
-    <p>Review purse balances and budget snapshots.</p>
-  </article>
-</section>
+  .ambient-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    animation: drift 12s infinite alternate ease-in-out;
+    z-index: 0;
+  }
+
+  .blob-brand-1 {
+    width: 500px;
+    height: 500px;
+    background: rgba(0, 201, 167, 0.22);
+    top: -150px;
+    left: -100px;
+  }
+
+  .blob-brand-2 {
+    width: 400px;
+    height: 400px;
+    background: rgba(0, 168, 135, 0.2);
+    top: 30%;
+    right: -100px;
+    animation-delay: -6s;
+  }
+
+  @keyframes drift {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(50px, 80px) scale(1.1); }
+  }
+
+  /* Hero Section */
+  .modern-hero {
+    min-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    /* Extra top padding inside to ensure content doesn't crash into the navbar */
+    padding: 8rem 1rem 4rem;
+    position: relative;
+    z-index: 1;
+    animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-badge {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--brand-primary);
+    margin-bottom: 2rem;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .modern-hero h1 {
+    font-size: clamp(3rem, 8vw, 5.5rem);
+    font-weight: 800;
+    line-height: 1.05;
+    margin: 0 0 1.5rem 0;
+    background: linear-gradient(135deg, #ffffff 30%, #a1a1aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.03em;
+    max-width: 900px;
+  }
+
+  .modern-hero p {
+    font-size: clamp(1.125rem, 2vw, 1.35rem);
+    color: var(--text-muted);
+    max-width: 650px;
+    margin: 0 auto 3rem auto;
+    line-height: 1.6;
+    font-weight: 400;
+  }
+
+  /* CTA Buttons */
+  .hero-actions {
+    display: flex;
+    gap: 1.25rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn-premium {
+    padding: 0.875rem 2.25rem;
+    border-radius: 9999px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn-primary-gradient {
+    background: linear-gradient(135deg, var(--brand-primary), var(--brand-dark));
+    color: #000000; /* Dark text for better contrast against the bright teal */
+    border: none;
+    box-shadow: 0 4px 20px var(--brand-glow);
+  }
+
+  .btn-primary-gradient:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 8px 30px var(--brand-glow);
+  }
+
+  .btn-glass {
+    background: var(--glass-bg);
+    color: white;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+  }
+
+  .btn-glass:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Modern Glass Grid */
+  .modern-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.75rem;
+    padding: 2rem 2rem 6rem;
+    max-width: 1280px; /* Constrains inner content perfectly center */
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  .glass-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 1.25rem;
+    padding: 2.5rem 2rem;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    transition: transform 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .glass-card:hover {
+    transform: translateY(-8px);
+    border-color: var(--brand-glow);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .glass-card h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 1rem 0;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+  }
+
+  .glass-card p {
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0 0 2rem 0;
+    flex-grow: 1;
+    font-size: 1rem;
+  }
+
+  .glass-card-btn {
+    margin-top: auto;
+    padding: 0.6rem 1.25rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.02);
+    color: #e4e4e7;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .glass-card:hover .glass-card-btn {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #000000;
+  }
+
+  /* Mobile Responsiveness */
+  @media (max-width: 768px) {
+    .modern-hero {
+      padding: 6rem 1.5rem 4rem;
+      min-height: auto;
+    }
+    .hero-actions {
+      flex-direction: column;
+      width: 100%;
+    }
+    .btn-premium {
+      width: 100%;
+    }
+    .modern-grid {
+      padding: 1rem 1.5rem 4rem;
+    }
+  }
+</style>
+
+<div class="scl-body-override">
+  <!-- Ambient Animated Background -->
+  <div class="hero-background">
+    <div class="ambient-blob blob-brand-1"></div>
+    <div class="ambient-blob blob-brand-2"></div>
+  </div>
+
+  <!-- Hero Section -->
+  <section class="modern-hero">
+    <div class="hero-badge">Section C League Platform</div>
+    <h1>Build. Track. <br/>Compete. Dominate.</h1>
+    <p>Your ultimate destination for Fantasy and Auction views. Seamlessly switch between seasons and track your team's performance with a unified, premium experience.</p>
+    
+    <div class="hero-actions">
+      <a href="{{ url_for('fantasy.fantasy_home') }}" class="btn-premium btn-primary-gradient">Enter Fantasy</a>
+      <a href="{{ url_for('viewer.home') }}" class="btn-premium btn-glass">Explore Auction</a>
+    </div>
+  </section>
+
+  <!-- Feature Grid -->
+  <section class="modern-grid">
+    <article id="teams" class="glass-card">
+      <h2>Teams</h2>
+      <p>Explore global teams across seasons, then drill down into detailed season-wise statistics and full squad breakdowns.</p>
+      <a class="glass-card-btn" href="{{ url_for('landing.teams_home') }}">Open Teams →</a>
+    </article>
+
+    <article id="matches" class="glass-card">
+      <h2>Matches</h2>
+      <p>Browse upcoming fixtures, live tracking, and historical results across the entire season timeline.</p>
+      <a class="glass-card-btn" href="{{ url_for('landing.matches_home') }}">View Fixtures →</a>
+    </article>
+
+    <article id="table" class="glass-card">
+      <h2>League Table</h2>
+      <p>Keep track of points, net run rate, and live standings in one beautiful, centralized dashboard.</p>
+      <a class="glass-card-btn" href="{{ url_for('landing.league_table_home') }}">See Standings →</a>
+    </article>
+
+    <article id="finances" class="glass-card">
+      <h2>Finances</h2>
+      <p>Review team purse balances, budget snapshots, and financial strategies transparently.</p>
+      <a class="glass-card-btn" href="{{ url_for('landing.finances_home') }}">Check Finances →</a>
+    </article>
+  </section>
+</div>
 {% endblock %}
 
 {% block scripts %}

@@ -1,8 +1,6 @@
 {% extends 'auction_base.html' %}
 {% block title %}SCL Hub{% endblock %}
 
-{% block topbar_brand %}SCL Hub{% endblock %}
-
 {% block topbar_nav %}
   <a id="nav-fantasy" data-default-href="{{ url_for('fantasy.fantasy_home') }}" data-season-href-template="{{ url_for('fantasy.fantasy_season', season_slug='__SEASON__') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
   <a id="nav-auction" data-default-href="{{ url_for('viewer.home') }}" data-season-href-template="{{ url_for('viewer.published_view', slug='__SEASON__') }}" href="{{ url_for('viewer.home') }}">Auction</a>

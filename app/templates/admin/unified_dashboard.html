@@ -1,12 +1,4 @@
 {% extends 'auction_base.html' %}
-{% block topbar_brand %}SCL Admin{% endblock %}
-{% block topbar_nav %}
-<a href="{{ url_for('unified_admin.dashboard', tab='auction') }}">Auction</a>
-<a href="{{ url_for('unified_admin.dashboard', tab='fantasy') }}">Fantasy</a>
-<a href="{{ url_for('unified_admin.dashboard', tab='scorer') }}">Scorer</a>
-<a href="{{ url_for('unified_admin.dashboard', tab='stats') }}">Stats</a>
-<a href="{{ url_for('unified_admin.dashboard', tab='finances') }}">Finances</a>
-{% endblock %}
 {% block content %}
 <section class="stack" id="adminDashboard" data-is-setup="{{ 'true' if state.phase == 'setup' else 'false' }}" data-active-tab="{{ active_tab }}" data-finance-selected-season="{{ finance_selected_season }}">
   <div class="card">
@@ -14,6 +6,13 @@
       <h2>Admin Control Room</h2>
       <a class="btn btn-outline" href="{{ url_for('unified_admin.admin_logout') }}">Logout</a>
     </div>
+    <nav class="admin-tab-bar">
+      <a href="{{ url_for('unified_admin.dashboard', tab='auction') }}" {% if active_tab == 'auction' %}class="active-tab"{% endif %}>Auction</a>
+      <a href="{{ url_for('unified_admin.dashboard', tab='fantasy') }}" {% if active_tab == 'fantasy' %}class="active-tab"{% endif %}>Fantasy</a>
+      <a href="{{ url_for('unified_admin.dashboard', tab='scorer') }}" {% if active_tab == 'scorer' %}class="active-tab"{% endif %}>Scorer</a>
+      <a href="{{ url_for('unified_admin.dashboard', tab='stats') }}" {% if active_tab == 'stats' %}class="active-tab"{% endif %}>Stats</a>
+      <a href="{{ url_for('unified_admin.dashboard', tab='finances') }}" {% if active_tab == 'finances' %}class="active-tab"{% endif %}>Finances</a>
+    </nav>
   </div>
 
   <div id="adminTab-auction" class="admin-tab-panel" {% if active_tab != 'auction' %}hidden{% endif %}>

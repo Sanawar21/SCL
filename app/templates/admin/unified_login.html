@@ -1,10 +1,7 @@
 {% extends 'auction_base.html' %}
 {% block topbar_brand %}SCL Admin Dashboard{% endblock %}
 {% block topbar_nav %}
-<a href="{{ url_for('viewer.home') }}">Auction Home</a>
-<a href="{{ url_for('viewer.live_view') }}">Live</a>
-<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
-<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin Login</a>
+<a href="{{ url_for('landing.index') }}">Root</a>
 {% endblock %}
 {% block content %}
 <section class="card form-card">

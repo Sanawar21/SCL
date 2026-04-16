@@ -12,6 +12,7 @@
     <div class="brand">{% block topbar_brand %}SCL Auction{% endblock %}</div>
     <nav>
       {% block topbar_nav %}
+      <a href="{{ url_for('landing.index') }}">Root</a>
       <a href="{{ url_for('viewer.home') }}">Home</a>
       <a href="{{ url_for('viewer.live_view') }}">Live</a>
       <a href="{{ url_for('landing.matches_home') }}">Matches</a>

@@ -1,0 +1,70 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}SCL Matches{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.finances_home') }}">Finances</a>
+<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+<a href="{{ url_for('landing.scorer') }}">Scorer</a>
+<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>Seasons</h2>
+    <p>Select a season to view registered matches.</p>
+    <div class="row-wrap">
+      {% for season in seasons %}
+      <a class="btn {% if season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.matches_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      {% endfor %}
+      {% if not seasons %}
+      <p>No seasons available yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Matches{% if selected_season %}: {{ selected_season }}{% endif %}</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Match #</th><th>Match ID</th><th>Between</th><th>Match Title</th><th>Status</th><th>Summary</th></tr>
+        </thead>
+        <tbody>
+          {% for row in matches %}
+          <tr>
+            <td>{{ row.match_number or '-' }}</td>
+            <td>{{ row.match_id }}</td>
+            <td>{{ row.between or '-' }}</td>
+            <td>{{ row.match_title or '-' }}</td>
+            <td>
+              {% if row.walkover %}
+                Walkover{% if row.walkover_winner_name %} ({{ row.walkover_winner_name }}){% endif %}
+              {% elif row.has_uploaded_data %}
+                Uploaded
+              {% else %}
+                Pending Upload
+              {% endif %}
+            </td>
+            <td>
+              {% if row.has_uploaded_data or row.walkover %}
+              <a class="btn btn-outline" href="{{ url_for('landing.match_summary', season_slug=row.season_slug, match_id=row.match_id) }}">Open</a>
+              {% else %}
+              -
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not matches %}
+          <tr><td colspan="6">No matches configured for this season yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

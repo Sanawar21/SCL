@@ -1,0 +1,87 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}SCL Finances{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+<a href="{{ url_for('landing.finances_home') }}">Finances</a>
+<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+<a href="{{ url_for('landing.scorer') }}">Scorer</a>
+<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>Seasons</h2>
+    <p>Select a season to view read-only team purse balances.</p>
+    <div class="row-wrap">
+      {% for season in seasons %}
+      <a class="btn {% if season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.finances_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      {% endfor %}
+      {% if not seasons %}
+      <p>No seasons available yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Budget Board{% if selected_season %}: {{ selected_season }}{% endif %}</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Purse Remaining</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in finances %}
+          <tr>
+            <td>{{ row.team_name }}</td>
+            <td>{{ row.purse_remaining }}</td>
+          </tr>
+          {% endfor %}
+          {% if not finances %}
+          <tr><td colspan="2">No finance data available for this season yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Transactions{% if selected_season %}: {{ selected_season }}{% endif %}</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Type</th>
+            <th>Details</th>
+            <th>Amount</th>
+            <th>Comment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in transactions %}
+          <tr>
+            <td>{{ row.created_at or '-' }}</td>
+            <td>{{ row.label }}</td>
+            <td>{{ row.summary }}</td>
+            <td>{{ row.amount }}</td>
+            <td>{{ row.comment or '-' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not transactions %}
+          <tr><td colspan="5">No finance transactions recorded for this season yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

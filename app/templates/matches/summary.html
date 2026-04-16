@@ -1,0 +1,146 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}Match Summary{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home', season=summary.season_slug) }}">Matches</a>
+<a href="{{ url_for('landing.matches_by_season', season_slug=summary.season_slug) }}">{{ summary.season_slug }}</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>{{ summary.match_id }}{% if summary.match_title %} - {{ summary.match_title }}{% endif %}</h2>
+    <p><strong>Season:</strong> {{ summary.season_slug }}</p>
+    <p><strong>Fixture:</strong> {{ summary.between or '-' }}</p>
+    <p><strong>Match #:</strong> {{ summary.match_number or '-' }}</p>
+
+    {% if summary.walkover %}
+      <p><strong>Result:</strong> Walkover{% if summary.walkover_winner %} - Winner: {{ summary.walkover_winner }}{% endif %}</p>
+    {% elif summary.has_uploaded_data %}
+      <p><strong>Result:</strong> {{ summary.match_row.result or '-' }}</p>
+      <p><strong>Venue:</strong> {{ summary.match_row.venue or '-' }}</p>
+      <p><strong>Date:</strong> {{ summary.match_row.match_date or '-' }}</p>
+      <p><strong>Toss:</strong> {{ summary.match_row.toss or '-' }}</p>
+    {% else %}
+      <p><strong>Status:</strong> Match data has not been uploaded yet.</p>
+    {% endif %}
+  </div>
+
+  {% if summary.has_uploaded_data and summary.team_sections and not summary.walkover %}
+  <div class="card">
+    <h3>Match Innings</h3>
+
+    {% for section in summary.team_sections %}
+    <div class="card" style="margin-top: 1rem; background: #f8fbff; border: 1px solid #d9e5ff;">
+      <h4 style="margin-bottom: 0.35rem;">{{ section.team_name }}</h4>
+      <p style="margin: 0 0 0.75rem;"><strong>Total:</strong> {{ section.total }}{% if section.team.result %} | <strong>Result:</strong> {{ section.team.result }}{% endif %}</p>
+
+      <h5 style="margin: 0.5rem 0;">Batting</h5>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Batter</th>
+              <th>Status</th>
+              <th>R</th>
+              <th>B</th>
+              <th>4s</th>
+              <th>6s</th>
+              <th>SR</th>
+              <th>Fantasy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for batter in section.batting_rows %}
+            <tr>
+              <td>{{ batter.player_name or batter.player_id }}</td>
+              <td>{{ batter.status }}</td>
+              <td>{{ batter.runs or 0 }}</td>
+              <td>{{ batter.balls_faced or 0 }}</td>
+              <td>{{ batter.fours or 0 }}</td>
+              <td>{{ batter.sixes or 0 }}</td>
+              <td>{{ batter.strike_rate_display }}</td>
+              <td>{{ batter.fantasy_score or 0 }}</td>
+            </tr>
+            {% endfor %}
+            {% if not section.batting_rows %}
+            <tr><td colspan="8">No batting rows available.</td></tr>
+            {% endif %}
+            <tr>
+              <td colspan="8"><strong>Extras:</strong> {{ section.extras }}</td>
+            </tr>
+            <tr>
+              <td colspan="8"><strong>Total:</strong> {{ section.total }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- <p style="margin: 0.5rem 0 0.75rem;"><strong>Fall of wickets:</strong> Not available in uploaded aggregate stats.</p> -->
+
+      <h5 style="margin: 0.5rem 0;">Bowling (Opposition)</h5>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Bowler</th>
+              <th>O</th>
+              <th>R</th>
+              <th>W</th>
+              <th>WD</th>
+              <th>NB</th>
+              <th>Econ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for bowler in section.bowling_rows %}
+            <tr>
+              <td>{{ bowler.player_name or bowler.player_id }}</td>
+              <td>{{ bowler.overs_display }}</td>
+              <td>{{ bowler.runs_conceded or 0 }}</td>
+              <td>{{ bowler.wickets or 0 }}</td>
+              <td>{{ bowler.wides_bowled or 0 }}</td>
+              <td>{{ bowler.noballs_bowled or 0 }}</td>
+              <td>{{ bowler.economy_display }}</td>
+            </tr>
+            {% endfor %}
+            {% if not section.bowling_rows %}
+            <tr><td colspan="7">No bowling rows available.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h3>Fantasy Points Leaderboard</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Player</th><th>Team</th><th>Runs</th><th>Wickets</th><th>Fantasy</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary.fantasy_leaderboard[:20] %}
+          <tr>
+            <td>{{ row.player_name or row.player_id }}</td>
+            <td>{{ row.team_name or '-' }}</td>
+            <td>{{ row.runs or 0 }}</td>
+            <td>{{ row.wickets or 0 }}</td>
+            <td>{{ row.fantasy_score or 0 }}</td>
+          </tr>
+          {% endfor %}
+          {% if not summary.fantasy_leaderboard %}
+          <tr><td colspan="5">No player stats available.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

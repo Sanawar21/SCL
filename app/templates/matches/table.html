@@ -1,0 +1,70 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}SCL Table{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+<a href="{{ url_for('landing.finances_home') }}">Finances</a>
+<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+<a href="{{ url_for('landing.scorer') }}">Scorer</a>
+<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>Seasons</h2>
+    <p>Select a season to view the league table.</p>
+    <div class="row-wrap">
+      {% for season in seasons %}
+      <a class="btn {% if season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.league_table_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      {% endfor %}
+      {% if not seasons %}
+      <p>No seasons available yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>League Table{% if selected_season %}: {{ selected_season }}{% endif %}</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Team</th>
+            <th>P</th>
+            <th>W</th>
+            <th>D</th>
+            <th>L</th>
+            <th>NR</th>
+            <th>Pts</th>
+            <th>NRR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in standings %}
+          <tr>
+            <td>{{ row.rank }}</td>
+            <td>{{ row.team_name }}</td>
+            <td>{{ row.played }}</td>
+            <td>{{ row.wins }}</td>
+            <td>{{ row.draws }}</td>
+            <td>{{ row.losses }}</td>
+            <td>{{ row.no_results }}</td>
+            <td>{{ row.points }}</td>
+            <td>{{ row.nrr_display }}</td>
+          </tr>
+          {% endfor %}
+          {% if not standings %}
+          <tr><td colspan="9">No standings available for this season yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,9 +1,14 @@
 {% extends 'auction_base.html' %}
 
-{% block topbar_brand %}SCL Hub{% endblock %}
-
 {% block topbar_nav %}
-  <a id="nav-fantasy" data-default-href="{{ url_for('fantasy.fantasy_home') }}" data-season-href-template="{{ url_for('fantasy.fantasy_season', season_slug='__SEASON__') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+  <a href="{{ url_for('landing.index') }}">Hub</a>
+  <div class="has-dropdown">
+    <a id="nav-fantasy" class="dropdown-trigger" data-default-href="{{ url_for('fantasy.fantasy_home') }}" data-season-href-template="{{ url_for('fantasy.fantasy_season', season_slug='__SEASON__') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+    <div class="dropdown-menu">
+      <a id="nav-fantasy-home" data-default-href="{{ url_for('fantasy.fantasy_home') }}" data-season-href-template="{{ url_for('fantasy.fantasy_season', season_slug='__SEASON__') }}" href="{{ url_for('fantasy.fantasy_home') }}">Fantasy Home</a>
+      <a href="{{ url_for('fantasy.fantasy_points_system') }}">Points System</a>
+    </div>
+  </div>
   <a id="nav-auction" data-default-href="{{ url_for('viewer.home') }}" data-season-href-template="{{ url_for('viewer.published_view', slug='__SEASON__') }}" href="{{ url_for('viewer.home') }}">Auction</a>
   <a href="{{ url_for('landing.teams_home') }}">Teams</a>
   <a href="{{ url_for('landing.matches_home') }}">Matches</a>
@@ -54,6 +59,7 @@
   (function () {
     const seasonSelect = document.getElementById("season-select");
     const fantasyLink = document.getElementById("nav-fantasy");
+    const fantasyHomeLink = document.getElementById("nav-fantasy-home");
     const auctionLink = document.getElementById("nav-auction");
     const tableLink = document.getElementById("nav-table");
     const financesLink = document.getElementById("nav-finances");
@@ -74,7 +80,9 @@
       const financesTemplate = financesLink.dataset.seasonHrefTemplate || "";
       const encodedSeason = encodeURIComponent(season || "");
 
-      fantasyLink.href = season && fantasyTemplate ? fantasyTemplate.replace("__SEASON__", encodedSeason) : fantasyDefault;
+      const fantasyHref = season && fantasyTemplate ? fantasyTemplate.replace("__SEASON__", encodedSeason) : fantasyDefault;
+      fantasyLink.href = fantasyHref;
+      if (fantasyHomeLink) { fantasyHomeLink.href = fantasyHref; }
       auctionLink.href = season && auctionTemplate ? auctionTemplate.replace("__SEASON__", encodedSeason) : auctionDefault;
       tableLink.href = season && tableTemplate ? tableTemplate.replace("__SEASON__", encodedSeason) : tableDefault;
       financesLink.href = season && financesTemplate ? financesTemplate.replace("__SEASON__", encodedSeason) : financesDefault;

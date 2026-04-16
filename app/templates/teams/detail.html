@@ -1,15 +1,5 @@
 {% extends 'auction_base.html' %}
 
-{% block topbar_brand %}Team Profile{% endblock %}
-
-{% block topbar_nav %}
-<a href="{{ url_for('landing.index') }}">Hub</a>
-<a href="{{ url_for('landing.teams_home') }}">Teams</a>
-<a href="{{ url_for('landing.matches_home') }}">Matches</a>
-<a href="{{ url_for('landing.league_table_home') }}">Table</a>
-<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
-{% endblock %}
-
 {% block content %}
 <section class="stack">
   <div class="card">

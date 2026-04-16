@@ -3,24 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SCL Auction</title>
+  <title>{% block page_title %}SCL Hub{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">{% block topbar_brand %}SCL Auction{% endblock %}</div>
-    <nav>
-      {% block topbar_nav %}
-      <a href="{{ url_for('landing.index') }}">Root</a>
-      <a href="{{ url_for('viewer.home') }}">Home</a>
-      <a href="{{ url_for('viewer.live_view') }}">Live</a>
-      <a href="{{ url_for('landing.matches_home') }}">Matches</a>
-      <a href="{{ url_for('landing.scorer') }}">Scorer</a>
-      <a href="{{ url_for('manager.login_page') }}">Manager</a>
-      <a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
-      {% endblock %}
-    </nav>
+    <div class="topbar-inner">
+      <div class="brand">{% block topbar_brand %}<a href="{{ url_for('landing.index') }}">SCL Hub</a>{% endblock %}</div>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="main-nav" id="mainNav">
+        {% block topbar_nav %}
+        <a href="{{ url_for('landing.index') }}">Hub</a>
+        <div class="has-dropdown">
+          <a href="{{ url_for('fantasy.fantasy_home') }}" class="dropdown-trigger">Fantasy</a>
+          <div class="dropdown-menu">
+            <a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy Home</a>
+            <a href="{{ url_for('fantasy.fantasy_points_system') }}">Points System</a>
+          </div>
+        </div>
+        <a href="{{ url_for('viewer.home') }}">Auction</a>
+        <a href="{{ url_for('landing.teams_home') }}">Teams</a>
+        <a href="{{ url_for('landing.matches_home') }}">Matches</a>
+        <a href="{{ url_for('landing.league_table_home') }}">Table</a>
+        <a href="{{ url_for('landing.finances_home') }}">Finances</a>
+        <a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
+        {% endblock %}
+      </nav>
+    </div>
   </header>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -38,5 +50,16 @@
   </main>
 
   {% block scripts %}{% endblock %}
+  <script>
+    (function () {
+      var toggle = document.getElementById('navToggle');
+      var nav = document.getElementById('mainNav');
+      if (!toggle || !nav) return;
+      toggle.addEventListener('click', function () {
+        var open = nav.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    })();
+  </script>
 </body>
 </html>

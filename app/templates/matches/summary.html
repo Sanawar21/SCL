@@ -1,4 +1,5 @@
 {% extends 'auction_base.html' %}
+{% block title %}{{ summary.match_id }}{% if summary.match_title %} — {{ summary.match_title }}{% endif %} — SCL{% endblock %}
 
 {% block topbar_brand %}Match Summary{% endblock %}
 
@@ -35,10 +36,10 @@
 
     {% for section in summary.team_sections %}
     <div class="card-nested">
-      <h4 style="margin-bottom: 0.35rem;">{{ section.team_name }}</h4>
-      <p style="margin: 0 0 0.75rem;"><strong>Total:</strong> {{ section.total }}{% if section.team.result %} | <strong>Result:</strong> {{ section.team.result }}{% endif %}</p>
+      <h4>{{ section.team_name }}</h4>
+      <p><strong>Total:</strong> {{ section.total }}{% if section.team.result %} | <strong>Result:</strong> {{ section.team.result }}{% endif %}</p>
 
-      <h5 style="margin: 0.5rem 0;">Batting</h5>
+      <h5>Batting</h5>
       <div class="table-wrap">
         <table>
           <thead>
@@ -81,7 +82,7 @@
 
       <!-- <p style="margin: 0.5rem 0 0.75rem;"><strong>Fall of wickets:</strong> Not available in uploaded aggregate stats.</p> -->
 
-      <h5 style="margin: 0.5rem 0;">Bowling (Opposition)</h5>
+      <h5>Bowling (Opposition)</h5>
       <div class="table-wrap">
         <table>
           <thead>

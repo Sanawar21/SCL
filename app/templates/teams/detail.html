@@ -1,4 +1,5 @@
 {% extends 'auction_base.html' %}
+{% block title %}{{ profile.team_name }} — Teams SCL{% endblock %}
 
 {% block topbar_brand %}Team Profile{% endblock %}
 
@@ -77,8 +78,8 @@
     <h3>Season Squads</h3>
     {% for season in profile.squads_by_season %}
     <div class="card-nested">
-      <h4 style="margin-bottom: 0.35rem;">{{ season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
-      <p style="margin: 0 0 0.65rem;"><strong>Manager:</strong>
+      <h4>{{ season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
+      <p><strong>Manager:</strong>
         {% if season.manager_player_slug %}
         <a href="{{ url_for('landing.player_profile', player_slug=season.manager_player_slug) }}">{{ season.manager_name }}</a>
         {% else %}

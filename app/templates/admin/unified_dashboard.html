@@ -1,4 +1,5 @@
 {% extends 'auction_base.html' %}
+{% block title %}Admin Dashboard — SCL{% endblock %}
 {% block topbar_brand %}SCL Admin{% endblock %}
 {% block topbar_nav %}
 <a href="{{ url_for('unified_admin.dashboard', tab='auction') }}">Auction</a>
@@ -435,7 +436,7 @@
               <td>{{ 'Open' if season.submissions_open else 'Closed' }}</td>
               <td>
                 <a class="btn btn-outline" href="{{ url_for('unified_admin.dashboard', tab='fantasy', season=season.slug) }}">Manage</a>
-                <form method="post" action="{{ url_for('fantasy.fantasy_admin_toggle_submissions') }}" style="display:inline-block;">
+                <form method="post" action="{{ url_for('fantasy.fantasy_admin_toggle_submissions') }}" class="form-inline">
                   <input type="hidden" name="season_slug" value="{{ season.slug }}">
                   <input type="hidden" name="desired_state" value="{{ 'closed' if season.submissions_open else 'open' }}">
                   <button class="btn {% if season.submissions_open %}btn-danger{% else %}btn-secondary{% endif %}" type="submit">

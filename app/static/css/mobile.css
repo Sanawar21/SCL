@@ -216,6 +216,7 @@ hr { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.07); margin: 16px 0;
 .stack-sm { display: grid; gap: var(--gap-sm); }
 .grid-2   { display: grid; gap: var(--gap); }
 .row-wrap { display: flex; gap: 8px; flex-wrap: wrap; }
+.form-inline { display: inline-block; }
 
 @media (min-width: 700px) {
   .grid-2 { grid-template-columns: 1fr 1fr; }

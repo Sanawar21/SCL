@@ -19,10 +19,28 @@ const publishSuffixInput = document.getElementById("publishSuffixInput");
 const publishStatus = document.getElementById("publishStatus");
 const scorerForm = document.getElementById("scorerForm");
 const scorerStatus = document.getElementById("scorerStatus");
+const scorerMatchForm = document.getElementById("scorerMatchForm");
+const scorerMatchStatus = document.getElementById("scorerMatchStatus");
+const scorerImportForm = document.getElementById("scorerImportForm");
+const scorerImportStatus = document.getElementById("scorerImportStatus");
+const scorerImportSummary = document.getElementById("scorerImportSummary");
+const financeAdjustForm = document.getElementById("financeAdjustForm");
+const financeTransferForm = document.getElementById("financeTransferForm");
+const financeStatus = document.getElementById("financeStatus");
+const seasonFinanceTable = document.getElementById("seasonFinanceTable");
 const adminDashboard = document.getElementById("adminDashboard");
 const isSetupPhase = adminDashboard?.getAttribute("data-is-setup") === "true";
+const financeSelectedSeason = adminDashboard?.getAttribute("data-finance-selected-season") || "";
 const teamManagerOptionsNode = document.getElementById("teamManagerOptions");
 const teamManagerOptions = teamManagerOptionsNode ? JSON.parse(teamManagerOptionsNode.textContent || "{}") : {};
+const scorerSeasonTeamOptionsNode = document.getElementById("scorerSeasonTeamOptions");
+const scorerSeasonTeamOptions = scorerSeasonTeamOptionsNode
+  ? JSON.parse(scorerSeasonTeamOptionsNode.textContent || "{}")
+  : {};
+const financeSeasonTeamOptionsNode = document.getElementById("financeSeasonTeamOptions");
+const financeSeasonTeamOptions = financeSeasonTeamOptionsNode
+  ? JSON.parse(financeSeasonTeamOptionsNode.textContent || "{}")
+  : {};
 
 function wireDeleteBidButtons() {
   document.querySelectorAll(".delete-bid-btn").forEach((btn) => {
@@ -142,6 +160,209 @@ function titleCaseTier(value) {
     return "-";
   }
   return `${text[0].toUpperCase()}${text.slice(1)}`;
+}
+
+function setSelectOptions(selectEl, options, placeholder) {
+  if (!selectEl) {
+    return;
+  }
+
+  const currentValue = selectEl.value;
+  selectEl.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = placeholder || "Select";
+  selectEl.appendChild(defaultOption);
+
+  options.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id || "";
+    option.textContent = item.name ? `${item.name} (${item.id || ""})` : (item.id || "");
+    selectEl.appendChild(option);
+  });
+
+  if (currentValue) {
+    selectEl.value = currentValue;
+  }
+}
+
+function refreshScorerMatchTeamOptions() {
+  if (!scorerMatchForm) {
+    return;
+  }
+
+  const seasonSlug = scorerMatchForm.querySelector('select[name="season_slug"]')?.value || "";
+  const options = Array.isArray(scorerSeasonTeamOptions[seasonSlug]) ? scorerSeasonTeamOptions[seasonSlug] : [];
+
+  const teamASelect = scorerMatchForm.querySelector('select[name="team_a_global_id"]');
+  const teamBSelect = scorerMatchForm.querySelector('select[name="team_b_global_id"]');
+  const walkoverWinnerSelect = scorerMatchForm.querySelector('select[name="walkover_winner_global_id"]');
+
+  setSelectOptions(teamASelect, options, "Select Team A");
+  setSelectOptions(teamBSelect, options, "Select Team B");
+  setSelectOptions(walkoverWinnerSelect, options, "Select walkover winner (if walkover)");
+}
+
+function financeRowsForSeason(seasonSlug) {
+  const key = String(seasonSlug || "").toLowerCase();
+  return Array.isArray(financeSeasonTeamOptions[key]) ? financeSeasonTeamOptions[key] : [];
+}
+
+function populateFinanceTeamSelect(selectEl, rows, placeholder) {
+  if (!selectEl) {
+    return;
+  }
+
+  const currentValue = selectEl.value;
+  selectEl.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = placeholder || "Select team";
+  selectEl.appendChild(defaultOption);
+
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.id || "";
+    option.textContent = `${row.name || row.id || "Team"} (Purse: ${row.purse_remaining ?? 0})`;
+    selectEl.appendChild(option);
+  });
+
+  if (currentValue) {
+    selectEl.value = currentValue;
+  }
+}
+
+function renderSeasonFinanceTable(rows) {
+  const tbody = seasonFinanceTable?.querySelector("tbody");
+  if (!tbody) {
+    return;
+  }
+
+  if (!Array.isArray(rows) || !rows.length) {
+    tbody.innerHTML = "<tr><td colspan=\"5\">No season finance data available. Create or load a season first.</td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.name || row.id || "Team")}</td>
+        <td>${escapeHtml(row.purse_remaining ?? 0)}</td>
+        <td>${escapeHtml(row.credits_remaining ?? 0)}</td>
+        <td>${escapeHtml(row.active_count ?? 0)}</td>
+        <td>${escapeHtml(row.bench_count ?? 0)}</td>
+      </tr>`
+    )
+    .join("");
+}
+
+function setFinanceSeason(seasonSlug) {
+  const safeSeason = String(seasonSlug || "").toLowerCase();
+  const rows = financeRowsForSeason(safeSeason);
+
+  const adjustSeasonSelect = financeAdjustForm?.querySelector('select[name="season_slug"]');
+  const transferSeasonSelect = financeTransferForm?.querySelector('select[name="season_slug"]');
+  if (adjustSeasonSelect && adjustSeasonSelect.value !== safeSeason) {
+    adjustSeasonSelect.value = safeSeason;
+  }
+  if (transferSeasonSelect && transferSeasonSelect.value !== safeSeason) {
+    transferSeasonSelect.value = safeSeason;
+  }
+
+  populateFinanceTeamSelect(financeAdjustForm?.querySelector('select[name="team_id"]'), rows, "Select team");
+  populateFinanceTeamSelect(financeTransferForm?.querySelector('select[name="from_team_id"]'), rows, "From team");
+  populateFinanceTeamSelect(financeTransferForm?.querySelector('select[name="to_team_id"]'), rows, "To team");
+  renderSeasonFinanceTable(rows);
+}
+
+if (financeAdjustForm || financeTransferForm) {
+  const initialSeason = financeSelectedSeason
+    || financeAdjustForm?.querySelector('select[name="season_slug"]')?.value
+    || financeTransferForm?.querySelector('select[name="season_slug"]')?.value
+    || "";
+  setFinanceSeason(initialSeason);
+
+  const adjustSeasonSelect = financeAdjustForm?.querySelector('select[name="season_slug"]');
+  const transferSeasonSelect = financeTransferForm?.querySelector('select[name="season_slug"]');
+
+  if (adjustSeasonSelect) {
+    adjustSeasonSelect.addEventListener("change", () => {
+      setFinanceSeason(adjustSeasonSelect.value || "");
+    });
+  }
+
+  if (transferSeasonSelect) {
+    transferSeasonSelect.addEventListener("change", () => {
+      setFinanceSeason(transferSeasonSelect.value || "");
+    });
+  }
+}
+
+if (financeAdjustForm) {
+  financeAdjustForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = new FormData(financeAdjustForm);
+    const seasonSlug = String(payload.get("season_slug") || "").trim().toLowerCase();
+    const operation = String(payload.get("operation") || "").trim().toLowerCase();
+    const amount = String(payload.get("amount") || "").trim();
+    const teamId = String(payload.get("team_id") || "").trim();
+    const comment = String(payload.get("comment") || "").trim();
+
+    if (!seasonSlug || !teamId || !amount || !comment) {
+      if (financeStatus) {
+        financeStatus.textContent = "Error: season, team, amount, and comment are required.";
+      }
+      return;
+    }
+
+    const res = await postForm("/admin/finances/adjust", payload);
+    if (!res.ok) {
+      if (financeStatus) {
+        financeStatus.textContent = `Error: ${res.error || "Unable to adjust purse"}`;
+      }
+      return;
+    }
+
+    financeSeasonTeamOptions[seasonSlug] = Array.isArray(res.team_rows) ? res.team_rows : [];
+    setFinanceSeason(seasonSlug);
+    if (financeStatus) {
+      const verb = operation === "remove" ? "Removed" : "Added";
+      financeStatus.textContent = `${verb} ${amount} for selected team in ${seasonSlug}.`;
+    }
+  });
+}
+
+if (financeTransferForm) {
+  financeTransferForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = new FormData(financeTransferForm);
+    const seasonSlug = String(payload.get("season_slug") || "").trim().toLowerCase();
+    const amount = String(payload.get("amount") || "").trim();
+    const comment = String(payload.get("comment") || "").trim();
+
+    if (!seasonSlug || !amount || !comment) {
+      if (financeStatus) {
+        financeStatus.textContent = "Error: season, amount, and comment are required.";
+      }
+      return;
+    }
+
+    const res = await postForm("/admin/finances/transfer", payload);
+    if (!res.ok) {
+      if (financeStatus) {
+        financeStatus.textContent = `Error: ${res.error || "Unable to transfer purse"}`;
+      }
+      return;
+    }
+
+    financeSeasonTeamOptions[seasonSlug] = Array.isArray(res.team_rows) ? res.team_rows : [];
+    setFinanceSeason(seasonSlug);
+    if (financeStatus) {
+      financeStatus.textContent = `Transferred ${amount} in ${seasonSlug}.`;
+    }
+  });
 }
 
 function startInlineEdit(row, html) {
@@ -379,12 +600,197 @@ if (scorerForm) {
   });
 }
 
+if (scorerMatchForm) {
+  const seasonSelect = scorerMatchForm.querySelector('select[name="season_slug"]');
+  if (seasonSelect) {
+    seasonSelect.addEventListener("change", refreshScorerMatchTeamOptions);
+  }
+  refreshScorerMatchTeamOptions();
+
+  scorerMatchForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await postForm("/admin/scorer/matches", new FormData(scorerMatchForm));
+    if (!res.ok) {
+      if (scorerMatchStatus) {
+        scorerMatchStatus.textContent = `Error: ${res.error || "Unable to save match"}`;
+      }
+      return;
+    }
+
+    if (scorerMatchStatus) {
+      const row = res.row || {};
+      scorerMatchStatus.textContent = `Saved ${row.match_id || "match"} (${row.season_slug || "-"}).`;
+    }
+
+    const walkoverField = scorerMatchForm.querySelector('input[name="walkover"]');
+    if (walkoverField) {
+      walkoverField.checked = false;
+    }
+    const winnerField = scorerMatchForm.querySelector('select[name="walkover_winner_global_id"]');
+    if (winnerField) {
+      winnerField.value = "";
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "scorer");
+    window.location.href = url.toString();
+  });
+}
+
+if (scorerImportForm) {
+  scorerImportForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (scorerImportStatus) {
+      scorerImportStatus.textContent = "Uploading CSV files and computing stats...";
+    }
+    if (scorerImportSummary) {
+      scorerImportSummary.textContent = "";
+    }
+
+    const submitImport = async (forceOverwrite = false) => {
+      const payload = new FormData(scorerImportForm);
+      if (forceOverwrite) {
+        payload.set("confirm_overwrite", "true");
+      }
+      return postForm("/admin/scorer/import", payload);
+    };
+
+    let res = await submitImport(false);
+    if (!res.ok && res.confirmation_required) {
+      const duplicates = Array.isArray(res.duplicates) ? res.duplicates : [];
+      const duplicateList = duplicates
+        .map((item) => `${item.match_id || "-"} (${item.season_slug || "-"})`)
+        .join(", ");
+      const confirmed = confirm(
+        `Duplicate match IDs found${duplicateList ? `: ${duplicateList}` : ""}. Overwrite existing stats?`
+      );
+      if (!confirmed) {
+        if (scorerImportStatus) {
+          scorerImportStatus.textContent = "Import cancelled. Duplicate match IDs require overwrite confirmation.";
+        }
+        return;
+      }
+      res = await submitImport(true);
+    }
+
+    if (!res.ok) {
+      if (scorerImportStatus) {
+        scorerImportStatus.textContent = `Error: ${res.error || "Unable to import scorer CSV"}`;
+      }
+      return;
+    }
+
+    if (scorerImportStatus) {
+      const imported = Array.isArray(res.imports) ? res.imports.length : 0;
+      const failed = Array.isArray(res.errors) ? res.errors.length : 0;
+      let status = `Imported ${imported} file(s). Failed: ${failed}.`;
+      if (res.confirmation_required) {
+        status += " Some duplicate match IDs were skipped until overwrite confirmation.";
+      }
+      scorerImportStatus.textContent = status;
+    }
+
+    if (scorerImportSummary && res.summary) {
+      const teamCount = res.summary.team_rows || 0;
+      const playerCount = res.summary.player_rows || 0;
+      const matchLabel = res.summary.match_id || "-";
+      const fantasyMode = res.summary.include_in_fantasy_points === false ? "excluded from" : "included in";
+      scorerImportSummary.textContent = `Latest match ${matchLabel}: ${teamCount} team rows, ${playerCount} player rows updated in global stats; fantasy contribution ${fantasyMode} aggregates.`;
+    }
+
+    if (Array.isArray(res.errors) && res.errors.length && scorerImportSummary) {
+      const details = res.errors.map((item) => `${item.file}: ${item.error}`).join(" | ");
+      scorerImportSummary.textContent = `${scorerImportSummary.textContent} Errors: ${details}`.trim();
+    }
+  });
+}
+
 wireDeleteBidButtons();
 refreshSessions();
 
 document.addEventListener("click", async (event) => {
   const btn = event.target.closest("button");
   if (!btn) {
+    return;
+  }
+
+  if (btn.classList.contains("undo-scorer-import-btn")) {
+    const matchKey = btn.getAttribute("data-match-key") || "";
+    const matchId = btn.getAttribute("data-match-id") || "";
+    const seasonSlug = btn.getAttribute("data-season-slug") || "";
+
+    if (!matchKey) {
+      alert("Missing match key for undo.");
+      return;
+    }
+
+    const confirmed = confirm(
+      `Undo imported stats for match ${matchId || "-"} in season ${seasonSlug || "-"}? This will remove match, team, and player stats for this import.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("match_key", matchKey);
+    const res = await postForm("/admin/scorer/import/undo", fd);
+    if (!res.ok) {
+      if (scorerImportStatus) {
+        scorerImportStatus.textContent = `Error: ${res.error || "Unable to undo scorer import"}`;
+      }
+      return;
+    }
+
+    if (scorerImportStatus) {
+      const summary = res.summary || {};
+      scorerImportStatus.textContent = `Undo complete for ${summary.match_id || matchId || "match"}. Removed ${summary.removed_team_rows || 0} team rows and ${summary.removed_player_rows || 0} player rows.`;
+    }
+    if (scorerImportSummary) {
+      scorerImportSummary.textContent = "Global aggregates were rebuilt after undo.";
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "scorer");
+    window.location.href = url.toString();
+    return;
+  }
+
+  if (btn.classList.contains("delete-scorer-match-btn")) {
+    const seasonSlug = btn.getAttribute("data-season-slug") || "";
+    const matchId = btn.getAttribute("data-match-id") || "";
+    const isWalkover = (btn.getAttribute("data-is-walkover") || "").toLowerCase() === "true";
+
+    const confirmed = confirm(
+      isWalkover
+        ? `Delete walkover match ${matchId || "-"} in ${seasonSlug || "-"}? Walkover stats will be restored.`
+        : `Delete match ${matchId || "-"} in ${seasonSlug || "-"}?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("season_slug", seasonSlug);
+    fd.append("match_id", matchId);
+    const res = await postForm("/admin/scorer/matches/delete", fd);
+    if (!res.ok) {
+      if (scorerMatchStatus) {
+        scorerMatchStatus.textContent = `Error: ${res.error || "Unable to delete match"}`;
+      }
+      return;
+    }
+
+    if (scorerMatchStatus) {
+      const summary = res.summary || {};
+      scorerMatchStatus.textContent = summary.restored_walkover_stats
+        ? `Deleted ${matchId}. Restored walkover stats.`
+        : `Deleted ${matchId}.`;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "scorer");
+    window.location.href = url.toString();
     return;
   }
 

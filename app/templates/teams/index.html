@@ -1,0 +1,61 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}SCL Teams{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+<a href="{{ url_for('landing.finances_home') }}">Finances</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>Global Teams</h2>
+    <p>All teams across all seasons. Click a team to open full global profile, season stats, and squads.</p>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Seasons</th>
+            <th>M</th>
+            <th>W</th>
+            <th>L</th>
+            <th>T</th>
+            <th>NR</th>
+            <th>Pts</th>
+            <th>NRR</th>
+            <th>Fantasy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in teams %}
+          <tr>
+            <td><a href="{{ url_for('landing.team_profile', team_slug=row.team_slug) }}">{{ row.team_name }}</a></td>
+            <td>{{ row.seasons_count }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.wins }}</td>
+            <td>{{ row.losses }}</td>
+            <td>{{ row.ties }}</td>
+            <td>{{ row.no_results }}</td>
+            <td>{{ row.points }}</td>
+            <td>{{ row.nrr_display }}</td>
+            <td>{{ row.fantasy_points }}</td>
+          </tr>
+          {% endfor %}
+          {% if not teams %}
+          <tr><td colspan="10">No global team data available yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

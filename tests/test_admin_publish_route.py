@@ -196,6 +196,17 @@ class AdminPublishRouteTests(unittest.TestCase):
         self.assertGreaterEqual(len(global_tables.get("global_players", [])), 2)
         self.assertGreaterEqual(len(global_tables.get("global_teams", [])), 1)
 
+        scorer_service = self.app.extensions["scorer_service"]
+        scorer_payload = scorer_service.build_context()["scorer_payload"]
+        scorer_team = scorer_payload["teams"][0]
+
+        self.assertEqual(scorer_team.get("id"), team_row.get("global_team_id"))
+        self.assertEqual(scorer_team.get("manager_id"), team_row.get("manager_global_player_id"))
+
+        scorer_player_ids = {player.get("id") for player in scorer_team.get("players", [])}
+        self.assertIn(global_tables["global_players"][0]["id"], scorer_player_ids)
+        self.assertIn(global_tables["global_players"][1]["id"], scorer_player_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

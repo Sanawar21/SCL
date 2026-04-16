@@ -1,6 +1,6 @@
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
@@ -26,6 +26,77 @@ unified_admin_bp = Blueprint("unified_admin", __name__)
 SPECIALITIES = {"ALL_ROUNDER", "BATTER", "BOWLER"}
 
 
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _finance_seasons():
+    season_store_manager = current_app.extensions["season_store_manager"]
+    fantasy_service = current_app.extensions["fantasy_service"]
+
+    seasons = []
+    for slug in season_store_manager.list_slugs():
+        safe_slug = (slug or "").strip().lower()
+        if not safe_slug:
+            continue
+        season_info = fantasy_service.get_season(safe_slug) if hasattr(fantasy_service, "get_season") else None
+        seasons.append(
+            {
+                "slug": safe_slug,
+                "name": (season_info or {}).get("name") or safe_slug,
+            }
+        )
+
+    seasons.sort(key=lambda item: item.get("slug") or "")
+    return seasons
+
+
+def _finance_team_rows(season_slug: str):
+    safe_slug = (season_slug or "").strip().lower()
+    if not safe_slug:
+        return []
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    if not season_store_manager.has_season(safe_slug):
+        return []
+
+    store = season_store_manager.get_store(safe_slug, create=False)
+    with store.read() as db:
+        teams = db.table("teams").all()
+
+    rows = []
+    for team in teams:
+        team_id = (team.get("id") or "").strip()
+        if not team_id:
+            continue
+        rows.append(
+            {
+                "id": team_id,
+                "name": (team.get("name") or team_id).strip() or team_id,
+                "purse_remaining": _safe_int(team.get("purse_remaining"), 0),
+                "credits_remaining": _safe_int(team.get("credits_remaining"), 0),
+                "active_count": len(team.get("players") or []),
+                "bench_count": len(team.get("bench") or []),
+            }
+        )
+
+    rows.sort(key=lambda item: (item.get("name") or "").lower())
+    return rows
+
+
+def _finance_log_transaction(db, payload: dict):
+    tx_table = db.table("finance_transactions")
+    tx_table.insert(
+        {
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            **payload,
+        }
+    )
+
+
 def _build_unified_admin_context():
     auction_service = current_app.extensions["auction_service"]
     auction_store = current_app.extensions["auction_store"]
@@ -37,7 +108,7 @@ def _build_unified_admin_context():
     scorer_config = scorer_service.load_config()
     season_slug = (request.args.get("season") or "").strip().lower()
     active_tab = (request.args.get("tab") or "auction").strip().lower()
-    if active_tab not in {"auction", "fantasy", "scorer"}:
+    if active_tab not in {"auction", "fantasy", "scorer", "stats", "finances"}:
         active_tab = "auction"
 
     selected = None
@@ -46,6 +117,22 @@ def _build_unified_admin_context():
         selected = fantasy_service.get_season(season_slug)
         if selected:
             entries = fantasy_service.get_entries_for_season(season_slug)
+
+    finance_seasons = _finance_seasons()
+    requested_finance_season = (request.args.get("fin_season") or "").strip().lower()
+    valid_finance_slugs = {(season.get("slug") or "").strip().lower() for season in finance_seasons}
+    if requested_finance_season in valid_finance_slugs:
+        finance_selected_season = requested_finance_season
+    else:
+        finance_selected_season = (finance_seasons[0].get("slug") if finance_seasons else "")
+
+    finance_season_team_options = {
+        (season.get("slug") or "").strip().lower(): _finance_team_rows((season.get("slug") or "").strip().lower())
+        for season in finance_seasons
+        if (season.get("slug") or "").strip().lower()
+    }
+
+    finance_selected_team_rows = finance_season_team_options.get(finance_selected_season, [])
 
     available_manager_players = []
     team_manager_options = {}
@@ -118,6 +205,16 @@ def _build_unified_admin_context():
         "scorer_available_seasons": scorer_service.list_seasons(),
         "scorer_download_filename": scorer_service.download_filename(scorer_config),
         "scorer_download_url": url_for("landing.scorer_download"),
+        "scorer_recent_imports": scorer_service.list_recent_imports(limit=12),
+        "scorer_team_global_stats": scorer_service.list_global_team_stats(limit=200),
+        "scorer_player_global_stats": scorer_service.list_global_player_stats(limit=500),
+        "scorer_match_seasons": scorer_service.list_match_seasons(),
+        "scorer_match_registry": scorer_service.list_match_registry(limit=500),
+        "scorer_season_team_options": scorer_service.list_season_team_options(),
+        "finance_seasons": finance_seasons,
+        "finance_selected_season": finance_selected_season,
+        "finance_season_team_options": finance_season_team_options,
+        "finance_selected_team_rows": finance_selected_team_rows,
     }
 
 
@@ -241,6 +338,334 @@ def scorer_save():
         )
     except Exception as exc:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@unified_admin_bp.post("/admin/scorer/import", endpoint="scorer_import")
+def scorer_import():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    season_slug = (request.form.get("season_slug") or "").strip().lower()
+    if not season_slug:
+        return jsonify({"ok": False, "error": "Season is required"}), 400
+
+    uploaded_files = [item for item in request.files.getlist("match_csvs") if item and (item.filename or "").strip()]
+    if not uploaded_files:
+        return jsonify({"ok": False, "error": "Select one or more CSV files"}), 400
+
+    scorer_service = current_app.extensions["scorer_service"]
+    confirm_overwrite = (request.form.get("confirm_overwrite") or "").strip().lower() in {"1", "true", "yes", "on"}
+    include_in_fantasy_points_raw = request.form.get("include_in_fantasy_points")
+    if include_in_fantasy_points_raw is None:
+        include_in_fantasy_points = True
+    else:
+        include_in_fantasy_points = (include_in_fantasy_points_raw or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    imports = []
+    errors = []
+    duplicates = []
+    latest_summary = {}
+    for upload in uploaded_files:
+        try:
+            summary = scorer_service.import_match_csv(
+                file_storage=upload,
+                season_slug=season_slug,
+                match_id_override=(request.form.get("match_id_override") or "").strip(),
+                venue_override=(request.form.get("venue_override") or "").strip(),
+                match_date=(request.form.get("match_date") or "").strip(),
+                uploaded_by=(user.get("username") or "admin"),
+                confirm_overwrite=confirm_overwrite,
+                include_in_fantasy_points=include_in_fantasy_points,
+            )
+            imports.append(summary)
+            latest_summary = summary
+        except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "requires_confirmation", False):
+                duplicates.append(
+                    {
+                        "file": upload.filename or "unknown.csv",
+                        "season_slug": getattr(exc, "season_slug", season_slug),
+                        "match_id": getattr(exc, "match_id", ""),
+                        "error": str(exc),
+                    }
+                )
+            errors.append({"file": upload.filename or "unknown.csv", "error": str(exc)})
+
+    if not imports:
+        if duplicates:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Overwrite confirmation required for one or more duplicate match IDs",
+                        "errors": errors,
+                        "confirmation_required": True,
+                        "duplicates": duplicates,
+                    }
+                ),
+                409,
+            )
+        return jsonify({"ok": False, "error": "Unable to import scorer CSV files", "errors": errors}), 400
+
+    return jsonify(
+        {
+            "ok": True,
+            "imports": imports,
+            "errors": errors,
+            "confirmation_required": bool(duplicates),
+            "duplicates": duplicates,
+            "summary": latest_summary,
+            "recent_imports": scorer_service.list_recent_imports(limit=12),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/scorer/matches", endpoint="scorer_match_upsert")
+def scorer_match_upsert():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    scorer_service = current_app.extensions["scorer_service"]
+    walkover = (request.form.get("walkover") or "").strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        row = scorer_service.upsert_match_registry_entry(
+            season_slug=(request.form.get("season_slug") or "").strip().lower(),
+            match_id=(request.form.get("match_id") or "").strip(),
+            team_a_global_id=(request.form.get("team_a_global_id") or "").strip(),
+            team_b_global_id=(request.form.get("team_b_global_id") or "").strip(),
+            match_number=(request.form.get("match_number") or "").strip(),
+            match_title=(request.form.get("match_title") or "").strip(),
+            walkover=walkover,
+            walkover_winner_global_id=(request.form.get("walkover_winner_global_id") or "").strip(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "ok": True,
+            "row": row,
+            "matches": scorer_service.list_match_registry(limit=500),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/scorer/matches/delete", endpoint="scorer_match_delete")
+def scorer_match_delete():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    scorer_service = current_app.extensions["scorer_service"]
+    try:
+        summary = scorer_service.delete_match_registry_entry(
+            season_slug=(request.form.get("season_slug") or "").strip().lower(),
+            match_id=(request.form.get("match_id") or "").strip(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    if not summary.get("removed"):
+        return jsonify({"ok": False, "error": "Match not found", "summary": summary}), 404
+
+    return jsonify(
+        {
+            "ok": True,
+            "summary": summary,
+            "matches": scorer_service.list_match_registry(limit=500),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/scorer/import/undo", endpoint="scorer_import_undo")
+def scorer_import_undo():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    match_key = (request.form.get("match_key") or "").strip()
+    if not match_key:
+        return jsonify({"ok": False, "error": "Match key is required"}), 400
+
+    scorer_service = current_app.extensions["scorer_service"]
+    summary = scorer_service.undo_imported_match(match_key=match_key)
+    if not summary.get("removed"):
+        return jsonify({"ok": False, "error": "Match import not found", "summary": summary}), 404
+
+    return jsonify(
+        {
+            "ok": True,
+            "summary": summary,
+            "recent_imports": scorer_service.list_recent_imports(limit=12),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/finances/adjust", endpoint="finances_adjust")
+def finances_adjust():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    season_slug = (request.form.get("season_slug") or "").strip().lower()
+    team_id = (request.form.get("team_id") or "").strip()
+    operation = (request.form.get("operation") or "").strip().lower()
+    amount = _safe_int((request.form.get("amount") or "").strip(), -1)
+    comment = (request.form.get("comment") or "").strip()
+
+    if not season_slug:
+        return jsonify({"ok": False, "error": "Season is required"}), 400
+    if not team_id:
+        return jsonify({"ok": False, "error": "Team is required"}), 400
+    if operation not in {"add", "remove"}:
+        return jsonify({"ok": False, "error": "Operation must be add or remove"}), 400
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "Amount must be a positive integer"}), 400
+    if not comment:
+        return jsonify({"ok": False, "error": "Comment is required"}), 400
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    if not season_store_manager.has_season(season_slug):
+        return jsonify({"ok": False, "error": "Season not found"}), 404
+
+    store = season_store_manager.get_store(season_slug, create=False)
+    Team = Query()
+
+    with store.write() as db:
+        teams = db.table("teams")
+        team = teams.get(Team.id == team_id)
+        if not team:
+            return jsonify({"ok": False, "error": "Team not found"}), 404
+
+        team_name = (team.get("name") or team_id).strip() or team_id
+        current_purse = _safe_int(team.get("purse_remaining"), 0)
+        delta = amount if operation == "add" else -amount
+        next_purse = current_purse + delta
+
+        teams.update({"purse_remaining": next_purse}, Team.id == team_id)
+        _finance_log_transaction(
+            db,
+            {
+                "type": "adjust",
+                "season_slug": season_slug,
+                "created_by": (user.get("username") or "admin").strip() or "admin",
+                "operation": operation,
+                "amount": amount,
+                "comment": comment,
+                "team_id": team_id,
+                "team_name": team_name,
+                "before_purse": current_purse,
+                "after_purse": next_purse,
+            },
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "season_slug": season_slug,
+            "team_id": team_id,
+            "operation": operation,
+            "amount": amount,
+            "team_rows": _finance_team_rows(season_slug),
+        }
+    )
+
+
+@unified_admin_bp.post("/admin/finances/transfer", endpoint="finances_transfer")
+def finances_transfer():
+    user = session.get("user")
+    if not user:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if user.get("role") != ROLE_ADMIN:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    season_slug = (request.form.get("season_slug") or "").strip().lower()
+    from_team_id = (request.form.get("from_team_id") or "").strip()
+    to_team_id = (request.form.get("to_team_id") or "").strip()
+    amount = _safe_int((request.form.get("amount") or "").strip(), -1)
+    comment = (request.form.get("comment") or "").strip()
+
+    if not season_slug:
+        return jsonify({"ok": False, "error": "Season is required"}), 400
+    if not from_team_id or not to_team_id:
+        return jsonify({"ok": False, "error": "Both source and target teams are required"}), 400
+    if from_team_id == to_team_id:
+        return jsonify({"ok": False, "error": "Source and target teams must be different"}), 400
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "Amount must be a positive integer"}), 400
+    if not comment:
+        return jsonify({"ok": False, "error": "Comment is required"}), 400
+
+    season_store_manager = current_app.extensions["season_store_manager"]
+    if not season_store_manager.has_season(season_slug):
+        return jsonify({"ok": False, "error": "Season not found"}), 404
+
+    store = season_store_manager.get_store(season_slug, create=False)
+    Team = Query()
+
+    with store.write() as db:
+        teams = db.table("teams")
+        from_team = teams.get(Team.id == from_team_id)
+        to_team = teams.get(Team.id == to_team_id)
+        if not from_team or not to_team:
+            return jsonify({"ok": False, "error": "One or more teams were not found"}), 404
+
+        from_team_name = (from_team.get("name") or from_team_id).strip() or from_team_id
+        to_team_name = (to_team.get("name") or to_team_id).strip() or to_team_id
+        from_purse = _safe_int(from_team.get("purse_remaining"), 0)
+        to_purse = _safe_int(to_team.get("purse_remaining"), 0)
+
+        from_after = from_purse - amount
+        to_after = to_purse + amount
+
+        teams.update({"purse_remaining": from_after}, Team.id == from_team_id)
+        teams.update({"purse_remaining": to_after}, Team.id == to_team_id)
+        _finance_log_transaction(
+            db,
+            {
+                "type": "transfer",
+                "season_slug": season_slug,
+                "created_by": (user.get("username") or "admin").strip() or "admin",
+                "amount": amount,
+                "comment": comment,
+                "from_team_id": from_team_id,
+                "from_team_name": from_team_name,
+                "to_team_id": to_team_id,
+                "to_team_name": to_team_name,
+                "from_before_purse": from_purse,
+                "from_after_purse": from_after,
+                "to_before_purse": to_purse,
+                "to_after_purse": to_after,
+            },
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "season_slug": season_slug,
+            "from_team_id": from_team_id,
+            "to_team_id": to_team_id,
+            "amount": amount,
+            "team_rows": _finance_team_rows(season_slug),
+        }
+    )
 
 
 @admin_bp.post("/create-manager")

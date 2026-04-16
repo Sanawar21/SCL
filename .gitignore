@@ -1,5 +1,6 @@
 __pycache__
 .venv
 data/
-data-backup/
-data-backup-2/
+data-backup*/
+matches*/
+scoreCard.py

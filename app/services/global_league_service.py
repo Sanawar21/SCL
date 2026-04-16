@@ -136,20 +136,33 @@ class GlobalLeagueService:
             if not team_id:
                 continue
 
+            manager_username = (team.get("manager_username") or "").strip()
+            manager_user = users_by_username.get(manager_username.lower(), {}) if manager_username else {}
+            manager_display_name = (manager_user.get("display_name") or "").strip()
+
             manager_player_id = (team.get("manager_player_id") or "").strip()
             if manager_player_id and manager_player_id in players_by_id:
                 manager_player = players_by_id[manager_player_id]
+
+                # Keep legacy synthetic manager players aligned with manager_username on reruns.
+                if manager_username and (manager_player.get("manager_team_id") or "").strip() == team_id:
+                    current_name = (manager_player.get("name") or "").strip()
+                    if self._normalize_name(current_name) != self._normalize_name(manager_username):
+                        manager_player["name"] = manager_username
+                        changed = True
+
                 team["manager_tier"] = (manager_player.get("tier") or team.get("manager_tier") or "silver").strip().lower()
                 continue
 
-            manager_username = (team.get("manager_username") or "").strip()
-            manager_user = users_by_username.get(manager_username.lower(), {}) if manager_username else {}
-            manager_name = (manager_user.get("display_name") or manager_username or "Manager").strip()
+            # Migration rule: manager player identity should follow manager_username, not team display name.
+            manager_name = (manager_username or manager_display_name or "Manager").strip()
             manager_speciality = (manager_user.get("speciality") or "ALL_ROUNDER").strip().upper()
 
-            existing_player = players_by_name.get(self._normalize_name(manager_name))
-            if not existing_player and manager_username:
+            existing_player = None
+            if manager_username:
                 existing_player = players_by_name.get(self._normalize_name(manager_username))
+            if not existing_player and manager_display_name:
+                existing_player = players_by_name.get(self._normalize_name(manager_display_name))
 
             if existing_player:
                 manager_player_id = (existing_player.get("id") or "").strip()

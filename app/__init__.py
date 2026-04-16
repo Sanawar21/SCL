@@ -147,12 +147,13 @@ def create_app():
     auth_service = AuthService(auth_store)
     auction_service = AuctionService(auction_store)
     global_league_service = GlobalLeagueService(global_league_store)
-    fantasy_service = FantasyService(auction_store, app.config["PUBLISHED_SESSION_DIR"], season_store_manager)
+    fantasy_service = FantasyService(global_league_store, app.config["PUBLISHED_SESSION_DIR"], season_store_manager)
     scorer_service = ScorerService(
         season_store_manager,
         auction_service,
         app.root_path,
         app.config["SCORER_CONFIG_PATH"],
+        global_league_service,
     )
 
     auth_service.seed_admin_if_missing()

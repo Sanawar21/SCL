@@ -4,9 +4,11 @@
 <a href="{{ url_for('unified_admin.dashboard', tab='auction') }}">Auction</a>
 <a href="{{ url_for('unified_admin.dashboard', tab='fantasy') }}">Fantasy</a>
 <a href="{{ url_for('unified_admin.dashboard', tab='scorer') }}">Scorer</a>
+<a href="{{ url_for('unified_admin.dashboard', tab='stats') }}">Stats</a>
+<a href="{{ url_for('unified_admin.dashboard', tab='finances') }}">Finances</a>
 {% endblock %}
 {% block content %}
-<section class="stack" id="adminDashboard" data-is-setup="{{ 'true' if state.phase == 'setup' else 'false' }}" data-active-tab="{{ active_tab }}">
+<section class="stack" id="adminDashboard" data-is-setup="{{ 'true' if state.phase == 'setup' else 'false' }}" data-active-tab="{{ active_tab }}" data-finance-selected-season="{{ finance_selected_season }}">
   <div class="card">
     <div class="row-between">
       <h2>Admin Control Room</h2>
@@ -229,28 +231,6 @@
     </div>
 
     <div class="card">
-      <h3>Public Budget Board</h3>
-      <div class="table-wrap">
-        <table id="teamTable">
-          <thead>
-            <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
-          </thead>
-          <tbody>
-          {% for t in state.public_budget_board %}
-            <tr>
-              <td>{{ t.team_name }}</td>
-              <td>{{ t.purse_remaining }}</td>
-              <td>{{ t.credits_remaining }}</td>
-              <td>{{ t.active_count }}</td>
-              <td>{{ t.bench_count }}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card">
       <h3>Players</h3>
       <div class="table-wrap">
         <table id="playerTable">
@@ -288,6 +268,107 @@
               </td>
             </tr>
           {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="adminTab-finances" class="admin-tab-panel" {% if active_tab != 'finances' %}hidden{% endif %}>
+    <div class="card">
+      <h3>Public Budget Board</h3>
+      <div class="table-wrap">
+        <table id="teamTable">
+          <thead>
+            <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+          </thead>
+          <tbody>
+          {% for t in state.public_budget_board %}
+            <tr>
+              <td>{{ t.team_name }}</td>
+              <td>{{ t.purse_remaining }}</td>
+              <td>{{ t.credits_remaining }}</td>
+              <td>{{ t.active_count }}</td>
+              <td>{{ t.bench_count }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Season Finances</h3>
+      <p>Adjust purse values for a specific season. Operations here do not affect other seasons.</p>
+
+      <form id="financeAdjustForm" class="grid-2">
+        <select name="season_slug" required>
+          <option value="">Select season</option>
+          {% for season in finance_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <select name="team_id" required>
+          <option value="">Select team</option>
+          {% for row in finance_selected_team_rows %}
+          <option value="{{ row.id }}">{{ row.name }} (Purse: {{ row.purse_remaining }})</option>
+          {% endfor %}
+        </select>
+        <select name="operation" required>
+          <option value="add">Add Money</option>
+          <option value="remove">Remove Money</option>
+        </select>
+        <input name="amount" type="number" min="1" step="1" placeholder="Amount" required>
+        <input name="comment" placeholder="Comment (required)" required>
+        <button class="btn" type="submit">Apply Adjustment</button>
+      </form>
+
+      <hr>
+
+      <form id="financeTransferForm" class="grid-2">
+        <select name="season_slug" required>
+          <option value="">Select season</option>
+          {% for season in finance_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <input name="amount" type="number" min="1" step="1" placeholder="Transfer amount" required>
+        <select name="from_team_id" required>
+          <option value="">From team</option>
+          {% for row in finance_selected_team_rows %}
+          <option value="{{ row.id }}">{{ row.name }} (Purse: {{ row.purse_remaining }})</option>
+          {% endfor %}
+        </select>
+        <select name="to_team_id" required>
+          <option value="">To team</option>
+          {% for row in finance_selected_team_rows %}
+          <option value="{{ row.id }}">{{ row.name }} (Purse: {{ row.purse_remaining }})</option>
+          {% endfor %}
+        </select>
+        <input name="comment" placeholder="Comment (required)" required>
+        <button class="btn btn-secondary" type="submit">Transfer Money</button>
+      </form>
+
+      <p id="financeStatus" class="mono"></p>
+
+      <div class="table-wrap">
+        <table id="seasonFinanceTable">
+          <thead>
+            <tr><th>Team</th><th>Purse</th><th>Credits</th><th>Active</th><th>Bench</th></tr>
+          </thead>
+          <tbody>
+            {% for row in finance_selected_team_rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td>{{ row.purse_remaining }}</td>
+              <td>{{ row.credits_remaining }}</td>
+              <td>{{ row.active_count }}</td>
+              <td>{{ row.bench_count }}</td>
+            </tr>
+            {% endfor %}
+            {% if not finance_selected_team_rows %}
+            <tr><td colspan="5">No season finance data available. Create or load a season first.</td></tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
@@ -382,6 +463,151 @@
 
   <div id="adminTab-scorer" class="admin-tab-panel" {% if active_tab != 'scorer' %}hidden{% endif %}>
     <div class="card">
+      <h3>Manage Season Matches</h3>
+      <p>Add or update matches that appear under /matches. CSV uploads must target one of these configured match IDs.</p>
+      <form id="scorerMatchForm" class="grid-2">
+        <select name="season_slug" required>
+          <option value="">Select season</option>
+          {% for season in scorer_match_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == scorer_config.season_slug %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <input name="match_id" placeholder="Match ID (e.g. M1)" required>
+        <input name="match_number" placeholder="Match # (e.g. Match 1)" required>
+        <select name="team_a_global_id" required>
+          <option value="">Select Team A</option>
+        </select>
+        <select name="team_b_global_id" required>
+          <option value="">Select Team B</option>
+        </select>
+        <input name="match_title" placeholder="Match title (optional)">
+        <label class="checkbox-row">
+          <input name="walkover" type="checkbox" value="true">
+          Walkover match
+        </label>
+        <select name="walkover_winner_global_id">
+          <option value="">Select walkover winner (if walkover)</option>
+        </select>
+        <button class="btn" type="submit">Save Match</button>
+      </form>
+      <p id="scorerMatchStatus" class="mono"></p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Season</th><th>Match #</th><th>Match ID</th><th>Between</th><th>Title</th><th>Walkover</th><th>Data</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for row in scorer_match_registry %}
+            <tr>
+              <td>{{ row.season_slug }}</td>
+              <td>{{ row.match_number or '-' }}</td>
+              <td>{{ row.match_id }}</td>
+              <td>{{ row.between or '-' }}</td>
+              <td>{{ row.match_title or '-' }}</td>
+              <td>
+                {% if row.walkover %}
+                  Yes{% if row.walkover_winner_name %} ({{ row.walkover_winner_name }}){% endif %}
+                {% else %}
+                  No
+                {% endif %}
+              </td>
+              <td>
+                {% if row.has_uploaded_data %}
+                  <a class="btn btn-outline" href="{{ url_for('landing.match_summary', season_slug=row.season_slug, match_id=row.match_id) }}">View Summary</a>
+                {% elif row.walkover %}
+                  <a class="btn btn-outline" href="{{ url_for('landing.match_summary', season_slug=row.season_slug, match_id=row.match_id) }}">View Walkover</a>
+                {% else %}
+                  Pending
+                {% endif %}
+              </td>
+              <td>
+                <button
+                  class="btn btn-danger delete-scorer-match-btn"
+                  type="button"
+                  data-season-slug="{{ row.season_slug }}"
+                  data-match-id="{{ row.match_id }}"
+                  data-is-walkover="{{ 'true' if row.walkover else 'false' }}"
+                >Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not scorer_match_registry %}
+            <tr><td colspan="8">No matches configured yet.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Import Scorer CSV Files</h3>
+      <p>Upload one or more CSV files downloaded from /scorer. Match ID must already be configured above for the selected season and must not already have uploaded data unless overwrite is confirmed.</p>
+      <form id="scorerImportForm" class="grid-2" enctype="multipart/form-data">
+        <select name="season_slug" required>
+          <option value="">Select season</option>
+          {% for season in scorer_available_seasons %}
+          <option value="{{ season.slug }}" {% if season.slug == scorer_config.season_slug %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          {% endfor %}
+        </select>
+        <input name="match_id_override" placeholder="Optional match id override (e.g. M8)">
+        <input name="venue_override" placeholder="Optional venue override">
+        <input name="match_date" type="date" placeholder="Optional match date">
+        <input name="match_csvs" type="file" accept=".csv,text/csv" multiple required>
+        <label class="checkbox-row">
+          <input name="include_in_fantasy_points" type="checkbox" value="true" checked>
+          Include this import in fantasy points
+        </label>
+        <label class="checkbox-row">
+          <input name="confirm_overwrite" type="checkbox" value="true">
+          Confirm overwrite if same season and match ID already exist
+        </label>
+        <button class="btn" type="submit">Upload And Compute Stats</button>
+      </form>
+      <p id="scorerImportStatus" class="mono"></p>
+      <p id="scorerImportSummary" class="mono"></p>
+    </div>
+
+    <div class="card">
+      <h3>Recent Imported Matches</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Match</th><th>Season</th><th>Venue</th><th>Result</th><th>Fantasy</th><th>Uploaded</th><th>Source</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+          {% for row in scorer_recent_imports %}
+            <tr>
+              <td>
+                <a href="{{ url_for('landing.match_summary', season_slug=row.season_slug, match_id=row.match_id) }}">{{ row.match_id }}</a>
+                {% if row.match %} - {{ row.match }}{% endif %}
+              </td>
+              <td>{{ row.season_slug or '-' }}</td>
+              <td>{{ row.venue or '-' }}</td>
+              <td>{{ row.result or '-' }}</td>
+              <td>{{ 'Included' if row.include_in_fantasy_points is not defined or row.include_in_fantasy_points else 'Excluded' }}</td>
+              <td>{{ row.uploaded_at or '-' }}</td>
+              <td>{{ row.source_file or '-' }}</td>
+              <td>
+                <button
+                  class="btn btn-danger undo-scorer-import-btn"
+                  type="button"
+                  data-match-key="{{ row.match_key or '' }}"
+                  data-match-id="{{ row.match_id or '' }}"
+                  data-season-slug="{{ row.season_slug or '' }}"
+                >Undo</button>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not scorer_recent_imports %}
+            <tr><td colspan="8">No scorer CSV uploads yet.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="row-between">
         <h3>Scorer Configuration</h3>
         <a class="btn btn-outline" href="{{ scorer_download_url }}">Download Current HTML</a>
@@ -404,8 +630,71 @@
       <p class="mono">Download filename: {{ scorer_download_filename }}</p>
     </div>
   </div>
+
+  <div id="adminTab-stats" class="admin-tab-panel" {% if active_tab != 'stats' %}hidden{% endif %}>
+    <div class="card">
+      <h3>Global Team Stats</h3>
+      <p>All seasons combined. Values are rebuilt from imported scorer match stats.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Team</th><th>Matches</th><th>W-L-T-NR</th><th>Runs</th><th>Wkts</th><th>RR</th><th>NRR</th><th>Fantasy</th></tr>
+          </thead>
+          <tbody>
+          {% for row in scorer_team_global_stats %}
+            <tr>
+              <td>{{ row.team_name or row.team_id }}</td>
+              <td>{{ row.matches or 0 }}</td>
+              <td>{{ row.wins or 0 }}-{{ row.losses or 0 }}-{{ row.ties or 0 }}-{{ row.no_results or 0 }}</td>
+              <td>{{ row.runs_scored or 0 }}</td>
+              <td>{{ row.wickets_taken or 0 }}</td>
+              <td>{{ row.run_rate_for or 0 }}</td>
+              <td>{{ row.net_run_rate or 0 }}</td>
+              <td>{{ row.fantasy_points or 0 }}</td>
+            </tr>
+          {% endfor %}
+          {% if not scorer_team_global_stats %}
+            <tr><td colspan="8">No global team stats yet. Import scorer CSV files first.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Global Player Stats</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Player</th><th>Team</th><th>Role</th><th>Matches</th><th>Runs</th><th>Wkts</th><th>SR</th><th>Econ</th><th>Fantasy</th><th>Avg Fantasy</th></tr>
+          </thead>
+          <tbody>
+          {% for row in scorer_player_global_stats %}
+            <tr>
+              <td>{{ row.player_name or row.player_id }}</td>
+              <td>{{ row.team_name or '-' }}</td>
+              <td>{{ (row.role or 'ALL_ROUNDER')|replace('_', ' ')|title }}</td>
+              <td>{{ row.matches or 0 }}</td>
+              <td>{{ row.runs or 0 }}</td>
+              <td>{{ row.wickets or 0 }}</td>
+              <td>{{ row.strike_rate or 0 }}</td>
+              <td>{{ row.economy or 0 }}</td>
+              <td>{{ row.fantasy_score or 0 }}</td>
+              <td>{{ row.fantasy_average or 0 }}</td>
+            </tr>
+          {% endfor %}
+          {% if not scorer_player_global_stats %}
+            <tr><td colspan="10">No global player stats yet. Import scorer CSV files first.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </section>
 <script id="teamManagerOptions" type="application/json">{{ team_manager_options|tojson }}</script>
+<script id="scorerSeasonTeamOptions" type="application/json">{{ scorer_season_team_options|tojson }}</script>
+<script id="financeSeasonTeamOptions" type="application/json">{{ finance_season_team_options|tojson }}</script>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>

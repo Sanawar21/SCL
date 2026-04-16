@@ -28,6 +28,75 @@ class FantasyService:
             raise ValueError("Published season is invalid")
         return payload
 
+    def _global_tables(self):
+        store = self.global_store
+        if not store:
+            return {}
+        try:
+            tables = store.export_tables()
+        except Exception:  # noqa: BLE001
+            return {}
+        return tables if isinstance(tables, dict) else {}
+
+    @staticmethod
+    def _safe_points_int(value):
+        try:
+            return int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    def _season_points_maps(self, season_slug: str):
+        safe_slug = (season_slug or "").strip().lower()
+        tables = self._global_tables()
+
+        player_global_by_local = {}
+        for row in tables.get("season_player_links", []):
+            if (row.get("season_slug") or "").strip().lower() != safe_slug:
+                continue
+            local_player_id = (row.get("local_player_id") or "").strip()
+            global_player_id = (row.get("global_player_id") or "").strip()
+            if local_player_id and global_player_id:
+                player_global_by_local[local_player_id] = global_player_id
+
+        team_global_by_local = {}
+        for row in tables.get("season_team_links", []):
+            if (row.get("season_slug") or "").strip().lower() != safe_slug:
+                continue
+            local_team_id = (row.get("local_team_id") or "").strip()
+            global_team_id = (row.get("global_team_id") or "").strip()
+            if local_team_id and global_team_id:
+                team_global_by_local[local_team_id] = global_team_id
+
+        player_points_by_id = Counter()
+        for row in tables.get("scorer_player_match_stats", []):
+            if (row.get("season_slug") or "").strip().lower() != safe_slug:
+                continue
+            player_id = (row.get("player_id") or "").strip()
+            if not player_id:
+                continue
+            player_points_by_id[player_id] += self._safe_points_int(row.get("fantasy_score"))
+
+        team_points_by_id = Counter()
+        team_points_by_name = Counter()
+        for row in tables.get("scorer_team_match_stats", []):
+            if (row.get("season_slug") or "").strip().lower() != safe_slug:
+                continue
+            team_id = (row.get("team_id") or "").strip()
+            team_name = (row.get("team_name") or "").strip()
+            fantasy_points = self._safe_points_int(row.get("fantasy_points"))
+            if team_id:
+                team_points_by_id[team_id] += fantasy_points
+            if team_name:
+                team_points_by_name[team_name] += fantasy_points
+
+        return {
+            "player_global_by_local": player_global_by_local,
+            "team_global_by_local": team_global_by_local,
+            "player_points_by_id": player_points_by_id,
+            "team_points_by_id": team_points_by_id,
+            "team_points_by_name": team_points_by_name,
+        }
+
     def _ensure_season_store(self, slug: str):
         safe_slug = (slug or "").strip().lower()
         if self.season_store_manager.has_season(safe_slug):
@@ -506,9 +575,34 @@ class FantasyService:
         return sorted(entries, key=lambda item: item.get("created_at") or "", reverse=True)
 
     def get_rankings(self, season_slug: str):
+        safe_slug = (season_slug or "").strip().lower()
         players = self._season_players(season_slug)
         players_by_id = {player["id"]: player for player in players if player.get("id")}
-        entries = self.get_entries_for_season(season_slug)
+        entries = self.get_entries_for_season(safe_slug)
+
+        points_maps = self._season_points_maps(safe_slug)
+        player_global_by_local = points_maps["player_global_by_local"]
+        team_global_by_local = points_maps["team_global_by_local"]
+        player_points_by_id = points_maps["player_points_by_id"]
+        team_points_by_id = points_maps["team_points_by_id"]
+        team_points_by_name = points_maps["team_points_by_name"]
+
+        def player_points(player_id: str) -> int:
+            safe_player_id = (player_id or "").strip()
+            if not safe_player_id:
+                return 0
+            global_player_id = player_global_by_local.get(safe_player_id, safe_player_id)
+            return player_points_by_id.get(global_player_id, player_points_by_id.get(safe_player_id, 0))
+
+        def team_points(team_id: str, team_name: str) -> int:
+            safe_team_id = (team_id or "").strip()
+            safe_team_name = (team_name or "").strip()
+            global_team_id = team_global_by_local.get(safe_team_id, safe_team_id)
+            if global_team_id and global_team_id in team_points_by_id:
+                return team_points_by_id[global_team_id]
+            if safe_team_id and safe_team_id in team_points_by_id:
+                return team_points_by_id[safe_team_id]
+            return team_points_by_name.get(safe_team_name, 0)
 
         pick_counter = Counter()
         for entry in entries:
@@ -516,6 +610,19 @@ class FantasyService:
                 player_id = pick.get("player_id")
                 if player_id:
                     pick_counter[player_id] += 1
+
+        ranked_entries = []
+        for entry in entries:
+            total_points = sum(player_points(pick.get("player_id")) for pick in (entry.get("picks") or []))
+            ranked_entries.append({**entry, "pts": total_points})
+
+        ranked_entries.sort(
+            key=lambda item: (
+                -self._safe_points_int(item.get("pts")),
+                item.get("created_at") or "",
+                (item.get("entrant_name") or "").lower(),
+            )
+        )
 
         player_rankings = []
         for player in players:
@@ -528,21 +635,49 @@ class FantasyService:
                     "credits": player["credits"],
                     "auction_team_name": player["auction_team_name"],
                     "pick_count": pick_counter.get(player["id"], 0),
+                    "pts": player_points(player["id"]),
                 }
             )
 
-        player_rankings.sort(key=lambda item: (-item["pick_count"], item["player_name"].lower()))
+        player_rankings.sort(
+            key=lambda item: (
+                -self._safe_points_int(item.get("pts")),
+                -item["pick_count"],
+                item["player_name"].lower(),
+            )
+        )
 
         team_scores = Counter()
+        team_ids_by_name = {}
         for player_id, count in pick_counter.items():
-            team_name = players_by_id.get(player_id, {}).get("auction_team_name") or "Unassigned"
+            player = players_by_id.get(player_id, {})
+            team_name = player.get("auction_team_name") or "Unassigned"
+            team_id = player.get("auction_team_id") or ""
             team_scores[team_name] += count
+            if team_name not in team_ids_by_name and team_id:
+                team_ids_by_name[team_name] = team_id
 
-        team_rankings = [{"team_name": team_name, "pick_points": points} for team_name, points in team_scores.items()]
-        team_rankings.sort(key=lambda item: (-item["pick_points"], item["team_name"].lower()))
+        team_rankings = []
+        for team_name, pick_points in team_scores.items():
+            team_id = team_ids_by_name.get(team_name, "")
+            team_rankings.append(
+                {
+                    "team_name": team_name,
+                    "pick_points": pick_points,
+                    "pts": team_points(team_id, team_name),
+                }
+            )
+
+        team_rankings.sort(
+            key=lambda item: (
+                -self._safe_points_int(item.get("pts")),
+                -item["pick_points"],
+                item["team_name"].lower(),
+            )
+        )
 
         return {
-            "entries": entries,
+            "entries": ranked_entries,
             "player_rankings": player_rankings,
             "team_rankings": team_rankings,
         }

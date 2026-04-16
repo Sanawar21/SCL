@@ -119,10 +119,21 @@ def _rewrite_team_usernames_in_tables(tables: dict):
     return patched_tables, rename_map, renamed_count
 
 
-def _process_tinydb(path: Path, season_slug: str, service: GlobalLeagueService, apply_changes: bool):
+def _process_tinydb(
+    path: Path,
+    season_slug: str,
+    service: GlobalLeagueService,
+    apply_changes: bool,
+    rewrite_team_usernames: bool,
+):
     db = LockedTinyDB(str(path))
     tables = db.export_tables()
-    rewritten_tables, rename_map, renamed_count = _rewrite_team_usernames_in_tables(tables)
+    if rewrite_team_usernames:
+        rewritten_tables, rename_map, renamed_count = _rewrite_team_usernames_in_tables(tables)
+    else:
+        rewritten_tables = tables
+        rename_map = {}
+        renamed_count = 0
 
     patched_tables, summary = service.apply_global_ids(
         season_slug=season_slug,
@@ -144,7 +155,13 @@ def _process_tinydb(path: Path, season_slug: str, service: GlobalLeagueService, 
     }
 
 
-def _process_payload_file(path: Path, slug: str, service: GlobalLeagueService, apply_changes: bool):
+def _process_payload_file(
+    path: Path,
+    slug: str,
+    service: GlobalLeagueService,
+    apply_changes: bool,
+    rewrite_team_usernames: bool,
+):
     payload = _load_json(path)
     tables = payload.get("tables")
     if not isinstance(tables, dict):
@@ -156,7 +173,12 @@ def _process_payload_file(path: Path, slug: str, service: GlobalLeagueService, a
             "reason": "missing tables payload",
         }
 
-    rewritten_tables, rename_map, renamed_count = _rewrite_team_usernames_in_tables(tables)
+    if rewrite_team_usernames:
+        rewritten_tables, rename_map, renamed_count = _rewrite_team_usernames_in_tables(tables)
+    else:
+        rewritten_tables = tables
+        rename_map = {}
+        renamed_count = 0
 
     patched_tables, summary = service.apply_global_ids(
         season_slug=slug,
@@ -327,6 +349,11 @@ def main():
         action="store_true",
         help="Sync global auth manager accounts from live auction manager users (requires --include-unpublished).",
     )
+    parser.add_argument(
+        "--rewrite-team-usernames",
+        action="store_true",
+        help="Rewrite manager/team usernames to team-name slugs before global linkage (off by default).",
+    )
     args = parser.parse_args()
 
     workspace = Path(args.workspace).resolve()
@@ -359,11 +386,27 @@ def main():
     if args.include_unpublished:
         live_db = workspace / "data" / "auction_live_db.json"
         if live_db.exists():
-            results.append(_process_tinydb(live_db, "live", service, args.apply))
+            results.append(
+                _process_tinydb(
+                    live_db,
+                    "live",
+                    service,
+                    args.apply,
+                    args.rewrite_team_usernames,
+                )
+            )
 
     season_dir = workspace / "data" / "season_dbs"
     for path in sorted(season_dir.glob("*.json")):
-        results.append(_process_tinydb(path, path.stem.lower(), service, args.apply))
+        results.append(
+            _process_tinydb(
+                path,
+                path.stem.lower(),
+                service,
+                args.apply,
+                args.rewrite_team_usernames,
+            )
+        )
 
     if args.include_snapshots:
         snapshot_dir = workspace / "data" / "auction_snapshots"
@@ -374,12 +417,28 @@ def main():
                 slug = (payload.get("slug") or slug).strip().lower() or slug
             except Exception:  # noqa: BLE001
                 pass
-            results.append(_process_payload_file(path, slug, service, args.apply))
+            results.append(
+                _process_payload_file(
+                    path,
+                    slug,
+                    service,
+                    args.apply,
+                    args.rewrite_team_usernames,
+                )
+            )
 
     published_dir = workspace / "published_sessions"
     if published_dir.exists():
         for path in sorted(published_dir.glob("*.json")):
-            results.append(_process_payload_file(path, path.stem.lower(), service, args.apply))
+            results.append(
+                _process_payload_file(
+                    path,
+                    path.stem.lower(),
+                    service,
+                    args.apply,
+                    args.rewrite_team_usernames,
+                )
+            )
 
     auth_sync_result = None
     if args.sync_auth:
@@ -405,6 +464,7 @@ def main():
         "global_db_runtime": str(global_store_path),
         "include_unpublished": bool(args.include_unpublished),
         "include_snapshots": bool(args.include_snapshots),
+        "rewrite_team_usernames": bool(args.rewrite_team_usernames),
         "reset_global": bool(args.reset_global),
         "sync_auth": bool(args.sync_auth),
         "files_processed": len(results),

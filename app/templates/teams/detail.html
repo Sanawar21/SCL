@@ -1,0 +1,104 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}Team Profile{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>{{ profile.team_name }}</h2>
+    <p><strong>Global Team ID:</strong> <span class="mono">{{ profile.team_id }}</span></p>
+  </div>
+
+  <div class="card">
+    <h3>Global Stats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>M</th><th>W</th><th>L</th><th>T</th><th>NR</th><th>Pts</th><th>Runs For</th><th>Runs Against</th><th>NRR</th><th>Fantasy</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{{ profile.global_stats.matches }}</td>
+            <td>{{ profile.global_stats.wins }}</td>
+            <td>{{ profile.global_stats.losses }}</td>
+            <td>{{ profile.global_stats.ties }}</td>
+            <td>{{ profile.global_stats.no_results }}</td>
+            <td>{{ profile.global_stats.points }}</td>
+            <td>{{ profile.global_stats.runs_scored }}</td>
+            <td>{{ profile.global_stats.runs_conceded }}</td>
+            <td>{{ profile.global_stats.nrr_display }}</td>
+            <td>{{ profile.global_stats.fantasy_points }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Season Wise Stats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Season</th><th>M</th><th>W</th><th>L</th><th>T</th><th>NR</th><th>Pts</th><th>Runs For</th><th>Runs Against</th><th>NRR</th><th>Fantasy</th></tr>
+        </thead>
+        <tbody>
+          {% for row in profile.season_stats %}
+          <tr>
+            <td>{{ row.season_slug }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.wins }}</td>
+            <td>{{ row.losses }}</td>
+            <td>{{ row.ties }}</td>
+            <td>{{ row.no_results }}</td>
+            <td>{{ row.points }}</td>
+            <td>{{ row.runs_scored }}</td>
+            <td>{{ row.runs_conceded }}</td>
+            <td>{{ row.nrr_display }}</td>
+            <td>{{ row.fantasy_points }}</td>
+          </tr>
+          {% endfor %}
+          {% if not profile.season_stats %}
+          <tr><td colspan="11">No season-wise stats available for this team yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Season Squads</h3>
+    {% for season in profile.squads_by_season %}
+    <div class="card" style="margin-top: 0.75rem; background: #f8fbff; border: 1px solid #d9e5ff;">
+      <h4 style="margin-bottom: 0.35rem;">{{ season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
+      <p style="margin: 0 0 0.65rem;"><strong>Manager:</strong>
+        {% if season.manager_player_slug %}
+        <a href="{{ url_for('landing.player_profile', player_slug=season.manager_player_slug) }}">{{ season.manager_name }}</a>
+        {% else %}
+        {{ season.manager_name }}
+        {% endif %}
+      </p>
+      <div class="chip-row">
+        {% for player in season.players %}
+        <a class="chip" href="{{ url_for('landing.player_profile', player_slug=player.player_slug) }}">
+          {{ player.player_name }}{% if player.is_manager %} (C){% endif %}
+        </a>
+        {% endfor %}
+        {% if not season.players %}
+        <span class="chip">No roster published</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if not profile.squads_by_season %}
+    <p>No squad snapshots found across seasons for this team.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

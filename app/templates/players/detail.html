@@ -1,0 +1,95 @@
+{% extends 'auction_base.html' %}
+
+{% block topbar_brand %}Player Profile{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>{{ profile.player_name }}</h2>
+    <p><strong>Global Player ID:</strong> <span class="mono">{{ profile.player_id }}</span></p>
+    <p><strong>Role:</strong> {{ profile.global_stats.role }} | <strong>Tier:</strong> {{ profile.global_stats.tier or '-' }}</p>
+  </div>
+
+  <div class="card">
+    <h3>Global Stats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>M</th><th>Runs</th><th>Wkts</th><th>SR</th><th>Avg</th><th>Econ</th><th>Fantasy</th><th>Avg Fantasy</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{{ profile.global_stats.matches }}</td>
+            <td>{{ profile.global_stats.runs }}</td>
+            <td>{{ profile.global_stats.wickets }}</td>
+            <td>{{ '%.2f'|format(profile.global_stats.strike_rate) }}</td>
+            <td>{{ '%.2f'|format(profile.global_stats.batting_average) }}</td>
+            <td>{{ '%.2f'|format(profile.global_stats.economy) }}</td>
+            <td>{{ profile.global_stats.fantasy_score }}</td>
+            <td>{{ profile.global_stats.fantasy_average }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Team Wise Stats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Team</th><th>M</th><th>Runs</th><th>Wkts</th><th>SR</th><th>Econ</th><th>Fantasy</th></tr>
+        </thead>
+        <tbody>
+          {% for row in profile.team_wise_stats %}
+          <tr>
+            <td><a href="{{ url_for('landing.team_profile', team_slug=row.team_slug) }}">{{ row.team_name }}</a></td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.runs }}</td>
+            <td>{{ row.wickets }}</td>
+            <td>{{ '%.2f'|format(row.strike_rate) }}</td>
+            <td>{{ '%.2f'|format(row.economy) }}</td>
+            <td>{{ row.fantasy_score }}</td>
+          </tr>
+          {% endfor %}
+          {% if not profile.team_wise_stats %}
+          <tr><td colspan="7">No team-wise stats available for this player yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Season Wise Stats</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Season</th><th>M</th><th>Runs</th><th>Wkts</th><th>Fantasy</th></tr>
+        </thead>
+        <tbody>
+          {% for row in profile.season_wise_stats %}
+          <tr>
+            <td>{{ row.season_slug }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.runs }}</td>
+            <td>{{ row.wickets }}</td>
+            <td>{{ row.fantasy_score }}</td>
+          </tr>
+          {% endfor %}
+          {% if not profile.season_wise_stats %}
+          <tr><td colspan="5">No season-wise stats available for this player yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

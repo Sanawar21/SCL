@@ -104,6 +104,16 @@ body {
   gap: 12px;
 }
 
+.admin-tab-panel:not([hidden]) {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.admin-tab-panel[hidden] {
+  display: none !important;
+}
+
 @media (min-width: 780px) {
   .landing-grid {
     grid-template-columns: 1fr 1fr;

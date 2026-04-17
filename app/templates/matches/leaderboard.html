@@ -1,0 +1,89 @@
+{% extends 'auction_base.html' %}
+{% block title %}Leaderboard — SCL{% endblock %}
+
+{% block topbar_brand %}SCL Leaderboard{% endblock %}
+
+{% block topbar_nav %}
+<a href="{{ url_for('landing.index') }}">Hub</a>
+<a href="{{ url_for('landing.teams_home') }}">Teams</a>
+<a href="{{ url_for('landing.matches_home') }}">Matches</a>
+<a href="{{ url_for('landing.league_table_home') }}">Table</a>
+<a href="{{ url_for('landing.leaderboard_home') }}">Leaderboard</a>
+<a href="{{ url_for('landing.finances_home') }}">Finances</a>
+<a href="{{ url_for('fantasy.fantasy_home') }}">Fantasy</a>
+<a href="{{ url_for('landing.scorer') }}">Scorer</a>
+<a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
+{% endblock %}
+
+{% block content %}
+<section class="stack">
+  <div class="card">
+    <h2>Season Selector</h2>
+    <p>Choose Global or a season to view only that leaderboard scope.</p>
+    <div class="row-wrap">
+      <a class="btn {% if active_scope == 'global' %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.leaderboard_home', scope='global') }}">Global</a>
+      {% for season in seasons %}
+      <a class="btn {% if active_scope == 'season' and season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.leaderboard_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      {% endfor %}
+      {% if not seasons %}
+      <p>No seasons available yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>{{ active_title }}</h3>
+    {% if active_scope == 'global' %}
+    <p>All-time records across all seasons.</p>
+    {% else %}
+    <p>Performance leaders for the selected season only.</p>
+    {% endif %}
+  </div>
+
+  {% for board in active_boards %}
+  <div class="card">
+    <h3>{{ board.title }}</h3>
+    <p>{{ board.description }}</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Value</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in board.rows %}
+          <tr>
+            <td>{{ row.rank }}</td>
+            <td>
+              {% if row.kind == 'player' %}
+              <a href="{{ url_for('landing.player_profile', player_slug=row.slug) }}">{{ row.name }}</a>
+              {% elif row.kind == 'team' %}
+              <a href="{{ url_for('landing.team_profile', team_slug=row.slug) }}">{{ row.name }}</a>
+              {% else %}
+              {{ row.name }}
+              {% endif %}
+            </td>
+            <td>{{ row.value }}</td>
+            <td>{{ row.meta or '-' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not board.rows %}
+          <tr><td colspan="4">No stats available yet for this leaderboard.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if not active_boards %}
+  <div class="card">
+    <p>No stats available yet for this selection. Import scorer CSVs to populate this section.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

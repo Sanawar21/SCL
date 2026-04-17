@@ -1478,6 +1478,544 @@ class ScorerService:
 
         return standings
 
+    def _aggregate_player_leaderboard_rows(self, rows, include_fantasy_by_match=None, season_slug: str = ""):
+        safe_season_slug = (season_slug or "").strip().lower()
+        grouped = {}
+
+        for row in rows or []:
+            row_season = (row.get("season_slug") or "").strip().lower()
+            if safe_season_slug and row_season != safe_season_slug:
+                continue
+
+            player_id = (row.get("player_id") or "").strip()
+            if not player_id:
+                continue
+
+            player_name = (row.get("player_name") or player_id).strip() or player_id
+            item = grouped.setdefault(
+                player_id,
+                {
+                    "player_id": player_id,
+                    "player_name": player_name,
+                    "matches": 0,
+                    "runs": 0,
+                    "balls_faced": 0,
+                    "dismissed": 0,
+                    "fours": 0,
+                    "sixes": 0,
+                    "wickets": 0,
+                    "balls_bowled": 0,
+                    "runs_conceded": 0,
+                    "fantasy_score": 0,
+                },
+            )
+
+            row_matches = self._safe_int(row.get("matches"), 0)
+            if row_matches <= 0 and ((row.get("match_key") or "").strip() or row_season):
+                row_matches = 1
+
+            item["player_name"] = player_name
+            item["matches"] += row_matches
+            item["runs"] += self._safe_int(row.get("runs"), 0)
+            item["balls_faced"] += self._safe_int(row.get("balls_faced"), 0)
+            item["dismissed"] += self._safe_int(row.get("dismissed"), 0)
+            item["fours"] += self._safe_int(row.get("fours"), 0)
+            item["sixes"] += self._safe_int(row.get("sixes"), 0)
+            item["wickets"] += self._safe_int(row.get("wickets"), 0)
+            item["balls_bowled"] += self._safe_int(row.get("balls_bowled"), 0)
+            item["runs_conceded"] += self._safe_int(row.get("runs_conceded"), 0)
+
+            include_fantasy = True
+            match_key = (row.get("match_key") or "").strip()
+            if include_fantasy_by_match is not None and match_key:
+                include_fantasy = include_fantasy_by_match.get(match_key, True)
+
+            if include_fantasy:
+                item["fantasy_score"] += self._safe_int(row.get("fantasy_score"), 0)
+
+        aggregated = []
+        for item in grouped.values():
+            runs = self._safe_int(item.get("runs"), 0)
+            balls_faced = self._safe_int(item.get("balls_faced"), 0)
+            dismissed = self._safe_int(item.get("dismissed"), 0)
+            balls_bowled = self._safe_int(item.get("balls_bowled"), 0)
+            runs_conceded = self._safe_int(item.get("runs_conceded"), 0)
+            wickets = self._safe_int(item.get("wickets"), 0)
+            matches = max(0, self._safe_int(item.get("matches"), 0))
+            boundaries = self._safe_int(item.get("fours"), 0) + self._safe_int(item.get("sixes"), 0)
+
+            strike_rate = (runs * 100.0 / float(balls_faced)) if balls_faced else 0.0
+            economy = (runs_conceded * 6.0 / float(balls_bowled)) if balls_bowled else 0.0
+            if dismissed > 0:
+                batting_average = runs / float(dismissed)
+            else:
+                batting_average = float(runs) if runs > 0 else 0.0
+
+            aggregated.append(
+                {
+                    **item,
+                    "boundaries": boundaries,
+                    "strike_rate": round(strike_rate, 2),
+                    "economy": round(economy, 2),
+                    "batting_average": round(batting_average, 2),
+                    "fantasy_average": round((item.get("fantasy_score", 0) / float(matches)), 2) if matches else 0.0,
+                    "all_round_impact": runs + (wickets * 25),
+                }
+            )
+
+        return aggregated
+
+    def _aggregate_team_leaderboard_rows(self, rows, include_fantasy_by_match=None, season_slug: str = ""):
+        safe_season_slug = (season_slug or "").strip().lower()
+        grouped = {}
+
+        for row in rows or []:
+            row_season = (row.get("season_slug") or "").strip().lower()
+            if safe_season_slug and row_season != safe_season_slug:
+                continue
+
+            team_id = (row.get("team_id") or "").strip()
+            if not team_id:
+                continue
+
+            team_name = (row.get("team_name") or team_id).strip() or team_id
+            item = grouped.setdefault(
+                team_id,
+                {
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "matches": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "ties": 0,
+                    "no_results": 0,
+                    "runs_scored": 0,
+                    "balls_faced": 0,
+                    "runs_conceded": 0,
+                    "balls_bowled": 0,
+                    "fours": 0,
+                    "sixes": 0,
+                    "wickets_taken": 0,
+                    "fantasy_points": 0,
+                },
+            )
+
+            row_wins = self._safe_int(row.get("wins"), 0)
+            row_losses = self._safe_int(row.get("losses"), 0)
+            row_ties = self._safe_int(row.get("ties"), 0)
+            row_no_results = self._safe_int(row.get("no_results"), 0)
+            if row_wins == row_losses == row_ties == row_no_results == 0:
+                result_value = (row.get("result") or "").strip().lower()
+                if result_value == "win":
+                    row_wins = 1
+                elif result_value == "loss":
+                    row_losses = 1
+                elif result_value in {"tie", "draw"}:
+                    row_ties = 1
+                elif result_value in {"no_result", "nr"}:
+                    row_no_results = 1
+
+            row_matches = self._safe_int(row.get("matches"), 0)
+            if row_matches <= 0:
+                row_matches = row_wins + row_losses + row_ties + row_no_results
+            if row_matches <= 0 and ((row.get("match_key") or "").strip() or row_season):
+                row_matches = 1
+
+            item["team_name"] = team_name
+            item["matches"] += row_matches
+            item["wins"] += row_wins
+            item["losses"] += row_losses
+            item["ties"] += row_ties
+            item["no_results"] += row_no_results
+            item["runs_scored"] += self._safe_int(row.get("runs_scored"), 0)
+            item["balls_faced"] += self._safe_int(row.get("balls_faced"), 0)
+            item["runs_conceded"] += self._safe_int(row.get("runs_conceded"), 0)
+            item["balls_bowled"] += self._safe_int(row.get("balls_bowled"), 0)
+            item["fours"] += self._safe_int(row.get("fours"), 0)
+            item["sixes"] += self._safe_int(row.get("sixes"), 0)
+            item["wickets_taken"] += self._safe_int(row.get("wickets_taken"), 0)
+
+            include_fantasy = True
+            match_key = (row.get("match_key") or "").strip()
+            if include_fantasy_by_match is not None and match_key:
+                include_fantasy = include_fantasy_by_match.get(match_key, True)
+            if include_fantasy:
+                item["fantasy_points"] += self._safe_int(row.get("fantasy_points"), 0)
+
+        aggregated = []
+        for item in grouped.values():
+            runs_scored = self._safe_int(item.get("runs_scored"), 0)
+            balls_faced = self._safe_int(item.get("balls_faced"), 0)
+            runs_conceded = self._safe_int(item.get("runs_conceded"), 0)
+            balls_bowled = self._safe_int(item.get("balls_bowled"), 0)
+            matches = max(0, self._safe_int(item.get("matches"), 0))
+            wins = self._safe_int(item.get("wins"), 0)
+            boundaries = self._safe_int(item.get("fours"), 0) + self._safe_int(item.get("sixes"), 0)
+
+            run_rate_for = (runs_scored * 6.0 / float(balls_faced)) if balls_faced else 0.0
+            run_rate_against = (runs_conceded * 6.0 / float(balls_bowled)) if balls_bowled else 0.0
+            nrr = run_rate_for - run_rate_against
+
+            aggregated.append(
+                {
+                    **item,
+                    "boundaries": boundaries,
+                    "run_rate_for": round(run_rate_for, 2),
+                    "run_rate_against": round(run_rate_against, 2),
+                    "net_run_rate": round(nrr, 2),
+                    "win_rate": round((wins * 100.0 / float(matches)), 2) if matches else 0.0,
+                    "fantasy_points_per_match": round((item.get("fantasy_points", 0) / float(matches)), 2) if matches else 0.0,
+                }
+            )
+
+        return aggregated
+
+    def build_leaderboards(self, season_slug: str = "", top_n: int = 5, scope: str = ""):
+        safe_top_n = max(1, self._safe_int(top_n, 5))
+        seasons = self.list_match_seasons()
+
+        selected_season = (season_slug or "").strip().lower()
+        valid_season_slugs = {item.get("slug") for item in seasons}
+
+        active_scope = (scope or "").strip().lower()
+        if active_scope not in {"global", "season"}:
+            active_scope = "season" if selected_season else "global"
+
+        if active_scope == "season":
+            if selected_season not in valid_season_slugs:
+                selected_season = (seasons[0].get("slug") if seasons else "")
+            if not selected_season:
+                active_scope = "global"
+        elif selected_season not in valid_season_slugs:
+            selected_season = ""
+
+        if not self.global_league_service or not getattr(self.global_league_service, "store", None):
+            return {
+                "scope": active_scope,
+                "seasons": seasons,
+                "selected_season": selected_season,
+                "global_boards": [],
+                "season_boards": [],
+                "active_title": "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {selected_season}",
+                "active_boards": [],
+            }
+
+        with self.global_league_service.store.read() as db:
+            match_rows = db.table("scorer_match_stats").all()
+            player_match_rows = db.table("scorer_player_match_stats").all()
+            team_match_rows = db.table("scorer_team_match_stats").all()
+            player_global_rows = db.table("scorer_player_global_stats").all()
+            team_global_rows = db.table("scorer_team_global_stats").all()
+
+        include_fantasy_by_match = {
+            (row.get("match_key") or "").strip(): bool(row.get("include_in_fantasy_points", True))
+            for row in match_rows
+            if (row.get("match_key") or "").strip()
+        }
+
+        global_players = self._aggregate_player_leaderboard_rows(player_global_rows)
+        season_players = self._aggregate_player_leaderboard_rows(
+            player_match_rows,
+            include_fantasy_by_match=include_fantasy_by_match,
+            season_slug=selected_season,
+        )
+        global_teams = self._aggregate_team_leaderboard_rows(team_global_rows)
+        season_teams = self._aggregate_team_leaderboard_rows(
+            team_match_rows,
+            include_fantasy_by_match=include_fantasy_by_match,
+            season_slug=selected_season,
+        )
+
+        def top_players(rows, sort_key, value_text, reverse=True, predicate=None, meta_text=None):
+            filtered = [row for row in rows if predicate(row)] if predicate else list(rows)
+            filtered.sort(key=sort_key, reverse=reverse)
+            ranked = []
+            for index, row in enumerate(filtered[:safe_top_n], start=1):
+                player_id = (row.get("player_id") or "").strip()
+                player_name = (row.get("player_name") or player_id).strip() or player_id
+                ranked.append(
+                    {
+                        "rank": index,
+                        "kind": "player",
+                        "name": player_name,
+                        "slug": self.player_profile_slug(player_id, player_name),
+                        "value": value_text(row),
+                        "meta": meta_text(row) if meta_text else "",
+                    }
+                )
+            return ranked
+
+        def top_teams(rows, sort_key, value_text, reverse=True, predicate=None, meta_text=None):
+            filtered = [row for row in rows if predicate(row)] if predicate else list(rows)
+            filtered.sort(key=sort_key, reverse=reverse)
+            ranked = []
+            for index, row in enumerate(filtered[:safe_top_n], start=1):
+                team_id = (row.get("team_id") or "").strip()
+                team_name = (row.get("team_name") or team_id).strip() or team_id
+                ranked.append(
+                    {
+                        "rank": index,
+                        "kind": "team",
+                        "name": team_name,
+                        "slug": self.team_profile_slug(team_id, team_name),
+                        "value": value_text(row),
+                        "meta": meta_text(row) if meta_text else "",
+                    }
+                )
+            return ranked
+
+        global_boards = [
+            {
+                "title": "Most Runs",
+                "description": "Top run scorers across all seasons.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("runs"), 0), self._safe_int(row.get("matches"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("runs"), 0)),
+                    meta_text=lambda row: f"M {self._safe_int(row.get('matches'), 0)}",
+                ),
+            },
+            {
+                "title": "Most Sixes",
+                "description": "Big hitters with maximum sixes.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("sixes"), 0), self._safe_int(row.get("runs"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("sixes"), 0)),
+                ),
+            },
+            {
+                "title": "Most Fours",
+                "description": "Boundary specialists with most fours.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("fours"), 0), self._safe_int(row.get("runs"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("fours"), 0)),
+                ),
+            },
+            {
+                "title": "Most Boundaries",
+                "description": "Combined fours + sixes leaders.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("boundaries"), 0), self._safe_int(row.get("runs"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("boundaries"), 0)),
+                    meta_text=lambda row: f"4s {self._safe_int(row.get('fours'), 0)} | 6s {self._safe_int(row.get('sixes'), 0)}",
+                ),
+            },
+            {
+                "title": "Highest Strike Rate (Min 5 Balls)",
+                "description": "Fastest scorers with minimum 5 balls faced.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_float(row.get("strike_rate"), 0.0), self._safe_int(row.get("runs"), 0)),
+                    value_text=lambda row: f"{self._safe_float(row.get('strike_rate'), 0.0):.2f}",
+                    predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                ),
+            },
+            {
+                "title": "Best Economy (Min 5 Balls Bowled)",
+                "description": "Most efficient bowlers (lower economy is better).",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_float(row.get("economy"), 9999.0), -self._safe_int(row.get("wickets"), 0)),
+                    value_text=lambda row: f"{self._safe_float(row.get('economy'), 0.0):.2f}",
+                    predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 5,
+                    reverse=False,
+                ),
+            },
+            {
+                "title": "Most Wickets",
+                "description": "Top wicket takers across all seasons.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("wickets"), 0), -self._safe_float(row.get("economy"), 0.0)),
+                    value_text=lambda row: str(self._safe_int(row.get("wickets"), 0)),
+                ),
+            },
+            {
+                "title": "Most Fantasy Points",
+                "description": "Highest fantasy points collected by players.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("fantasy_score"), 0), self._safe_int(row.get("matches"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("fantasy_score"), 0)),
+                    meta_text=lambda row: f"Avg {self._safe_float(row.get('fantasy_average'), 0.0):.2f}",
+                ),
+            },
+            {
+                "title": "Highest Batting Avg (Min 5 Balls)",
+                "description": "Best batting average with a minimum 5 balls faced.",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_float(row.get("batting_average"), 0.0), self._safe_int(row.get("runs"), 0)),
+                    value_text=lambda row: f"{self._safe_float(row.get('batting_average'), 0.0):.2f}",
+                    predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                ),
+            },
+            {
+                "title": "Best All-Round Impact",
+                "description": "Custom index: runs + (25 x wickets).",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("all_round_impact"), 0), self._safe_int(row.get("fantasy_score"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("all_round_impact"), 0)),
+                    meta_text=lambda row: f"R {self._safe_int(row.get('runs'), 0)} | W {self._safe_int(row.get('wickets'), 0)}",
+                ),
+            },
+            {
+                "title": "Best Fantasy Team",
+                "description": "Teams ranked by total fantasy points.",
+                "rows": top_teams(
+                    global_teams,
+                    sort_key=lambda row: (self._safe_int(row.get("fantasy_points"), 0), self._safe_int(row.get("wins"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("fantasy_points"), 0)),
+                    meta_text=lambda row: f"Avg {self._safe_float(row.get('fantasy_points_per_match'), 0.0):.2f}",
+                ),
+            },
+            {
+                "title": "Best Team Net Run Rate",
+                "description": "Top teams by net run rate.",
+                "rows": top_teams(
+                    global_teams,
+                    sort_key=lambda row: (self._safe_float(row.get("net_run_rate"), 0.0), self._safe_int(row.get("wins"), 0)),
+                    value_text=lambda row: f"{self._safe_float(row.get('net_run_rate'), 0.0):.2f}",
+                ),
+            },
+        ]
+
+        season_boards = []
+        if selected_season:
+            season_boards = [
+                {
+                    "title": "Most Runs",
+                    "description": "Top run scorers for the selected season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("runs"), 0), self._safe_int(row.get("matches"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("runs"), 0)),
+                    ),
+                },
+                {
+                    "title": "Most Sixes",
+                    "description": "Highest six hitters for this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("sixes"), 0), self._safe_int(row.get("runs"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("sixes"), 0)),
+                    ),
+                },
+                {
+                    "title": "Most Fours",
+                    "description": "Most fours in this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("fours"), 0), self._safe_int(row.get("runs"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("fours"), 0)),
+                    ),
+                },
+                {
+                    "title": "Most Boundaries",
+                    "description": "Combined fours + sixes for this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("boundaries"), 0), self._safe_int(row.get("runs"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("boundaries"), 0)),
+                    ),
+                },
+                {
+                    "title": "Highest Strike Rate (Min 5 Balls)",
+                    "description": "Fastest scoring pace this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_float(row.get("strike_rate"), 0.0), self._safe_int(row.get("runs"), 0)),
+                        value_text=lambda row: f"{self._safe_float(row.get('strike_rate'), 0.0):.2f}",
+                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                    ),
+                },
+                {
+                    "title": "Best Economy (Min 5 Balls Bowled)",
+                    "description": "Most efficient bowlers for this season (lower is better).",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_float(row.get("economy"), 9999.0), -self._safe_int(row.get("wickets"), 0)),
+                        value_text=lambda row: f"{self._safe_float(row.get('economy'), 0.0):.2f}",
+                        predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 5,
+                        reverse=False,
+                    ),
+                },
+                {
+                    "title": "Most Wickets",
+                    "description": "Top wicket takers this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("wickets"), 0), -self._safe_float(row.get("economy"), 0.0)),
+                        value_text=lambda row: str(self._safe_int(row.get("wickets"), 0)),
+                    ),
+                },
+                {
+                    "title": "Most Fantasy Points",
+                    "description": "Highest fantasy points in this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_int(row.get("fantasy_score"), 0), self._safe_int(row.get("matches"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("fantasy_score"), 0)),
+                    ),
+                },
+                {
+                    "title": "Highest Batting Avg (Min 5 Balls)",
+                    "description": "Best batting average in this season.",
+                    "rows": top_players(
+                        season_players,
+                        sort_key=lambda row: (self._safe_float(row.get("batting_average"), 0.0), self._safe_int(row.get("runs"), 0)),
+                        value_text=lambda row: f"{self._safe_float(row.get('batting_average'), 0.0):.2f}",
+                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                    ),
+                },
+                {
+                    "title": "Best Fantasy Team",
+                    "description": "Teams ranked by fantasy points this season.",
+                    "rows": top_teams(
+                        season_teams,
+                        sort_key=lambda row: (self._safe_int(row.get("fantasy_points"), 0), self._safe_int(row.get("wins"), 0)),
+                        value_text=lambda row: str(self._safe_int(row.get("fantasy_points"), 0)),
+                    ),
+                },
+                {
+                    "title": "Highest Team Run Rate",
+                    "description": "Teams with fastest scoring pace (min 12 balls faced).",
+                    "rows": top_teams(
+                        season_teams,
+                        sort_key=lambda row: (self._safe_float(row.get("run_rate_for"), 0.0), self._safe_int(row.get("runs_scored"), 0)),
+                        value_text=lambda row: f"{self._safe_float(row.get('run_rate_for'), 0.0):.2f}",
+                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 12,
+                    ),
+                },
+                {
+                    "title": "Best Win Rate (Min 2 Matches)",
+                    "description": "Teams with the strongest win percentage.",
+                    "rows": top_teams(
+                        season_teams,
+                        sort_key=lambda row: (self._safe_float(row.get("win_rate"), 0.0), self._safe_int(row.get("wins"), 0)),
+                        value_text=lambda row: f"{self._safe_float(row.get('win_rate'), 0.0):.2f}%",
+                        predicate=lambda row: self._safe_int(row.get("matches"), 0) >= 2,
+                    ),
+                },
+            ]
+
+        active_boards = global_boards if active_scope == "global" else season_boards
+        active_title = "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {selected_season}"
+
+        return {
+            "scope": active_scope,
+            "seasons": seasons,
+            "selected_season": selected_season,
+            "global_boards": global_boards,
+            "season_boards": season_boards,
+            "active_title": active_title,
+            "active_boards": active_boards,
+        }
+
     def _season_team_options(self, season_slug: str):
         safe_slug = (season_slug or "").strip().lower()
         if not safe_slug:

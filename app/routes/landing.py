@@ -140,6 +140,37 @@ def league_table_by_season(season_slug):
     )
 
 
+@landing_bp.get("/leaderboard")
+def leaderboard_home():
+    scorer_service = current_app.extensions["scorer_service"]
+    scope = (request.args.get("scope") or "").strip().lower()
+    season_slug = (request.args.get("season") or "").strip().lower()
+    leaderboard = scorer_service.build_leaderboards(season_slug=season_slug, scope=scope)
+    return render_template(
+        "matches/leaderboard.html",
+        active_scope=leaderboard.get("scope") or "global",
+        seasons=leaderboard.get("seasons") or [],
+        selected_season=leaderboard.get("selected_season") or "",
+        active_title=leaderboard.get("active_title") or "Global Leaderboards",
+        active_boards=leaderboard.get("active_boards") or [],
+    )
+
+
+@landing_bp.get("/leaderboard/<season_slug>")
+def leaderboard_by_season(season_slug):
+    scorer_service = current_app.extensions["scorer_service"]
+    safe_season_slug = (season_slug or "").strip().lower()
+    leaderboard = scorer_service.build_leaderboards(season_slug=safe_season_slug, scope="season")
+    return render_template(
+        "matches/leaderboard.html",
+        active_scope=leaderboard.get("scope") or "season",
+        seasons=leaderboard.get("seasons") or [],
+        selected_season=leaderboard.get("selected_season") or safe_season_slug,
+        active_title=leaderboard.get("active_title") or f"Season Leaderboards: {safe_season_slug}",
+        active_boards=leaderboard.get("active_boards") or [],
+    )
+
+
 @landing_bp.get("/finances")
 def finances_home():
     scorer_service = current_app.extensions["scorer_service"]

@@ -7,6 +7,7 @@
   <a href="{{ url_for('landing.teams_home') }}">Teams</a>
   <a href="{{ url_for('landing.matches_home') }}">Matches</a>
   <a id="nav-table" data-default-href="{{ url_for('landing.league_table_home') }}" data-season-href-template="{{ url_for('landing.league_table_by_season', season_slug='__SEASON__') }}" href="{{ url_for('landing.league_table_home') }}">Table</a>
+  <a id="nav-leaderboard" data-default-href="{{ url_for('landing.leaderboard_home') }}" data-season-href-template="{{ url_for('landing.leaderboard_by_season', season_slug='__SEASON__') }}" href="{{ url_for('landing.leaderboard_home') }}">Leaderboard</a>
   <a id="nav-finances" data-default-href="{{ url_for('landing.finances_home') }}" data-season-href-template="{{ url_for('landing.finances_by_season', season_slug='__SEASON__') }}" href="{{ url_for('landing.finances_home') }}">Finances</a>
   <a href="{{ url_for('unified_admin.admin_login_page') }}">Admin</a>
   <label class="season-picker" for="season-select">
@@ -324,6 +325,12 @@
       <a class="glass-card-btn" href="{{ url_for('landing.league_table_home') }}">See Standings →</a>
     </article>
 
+    <article id="leaderboard" class="glass-card">
+      <h2>Leaderboard</h2>
+      <p>View global legends and season-specific leaders for batting, bowling, fantasy, and team milestones.</p>
+      <a class="glass-card-btn" href="{{ url_for('landing.leaderboard_home') }}">View Leaderboards →</a>
+    </article>
+
     <article id="finances" class="glass-card">
       <h2>Finances</h2>
       <p>Review team purse balances, budget snapshots, and financial strategies transparently.</p>
@@ -340,9 +347,10 @@
     const fantasyLink = document.getElementById("nav-fantasy");
     const auctionLink = document.getElementById("nav-auction");
     const tableLink = document.getElementById("nav-table");
+    const leaderboardLink = document.getElementById("nav-leaderboard");
     const financesLink = document.getElementById("nav-finances");
 
-    if (!seasonSelect || !fantasyLink || !auctionLink || !tableLink || !financesLink) {
+    if (!seasonSelect || !fantasyLink || !auctionLink || !tableLink || !leaderboardLink || !financesLink) {
       return;
     }
 
@@ -351,16 +359,19 @@
       const fantasyDefault = fantasyLink.dataset.defaultHref;
       const auctionDefault = auctionLink.dataset.defaultHref;
       const tableDefault = tableLink.dataset.defaultHref;
+      const leaderboardDefault = leaderboardLink.dataset.defaultHref;
       const financesDefault = financesLink.dataset.defaultHref;
       const fantasyTemplate = fantasyLink.dataset.seasonHrefTemplate || "";
       const auctionTemplate = auctionLink.dataset.seasonHrefTemplate || "";
       const tableTemplate = tableLink.dataset.seasonHrefTemplate || "";
+      const leaderboardTemplate = leaderboardLink.dataset.seasonHrefTemplate || "";
       const financesTemplate = financesLink.dataset.seasonHrefTemplate || "";
       const encodedSeason = encodeURIComponent(season || "");
 
       fantasyLink.href = season && fantasyTemplate ? fantasyTemplate.replace("__SEASON__", encodedSeason) : fantasyDefault;
       auctionLink.href = season && auctionTemplate ? auctionTemplate.replace("__SEASON__", encodedSeason) : auctionDefault;
       tableLink.href = season && tableTemplate ? tableTemplate.replace("__SEASON__", encodedSeason) : tableDefault;
+      leaderboardLink.href = season && leaderboardTemplate ? leaderboardTemplate.replace("__SEASON__", encodedSeason) : leaderboardDefault;
       financesLink.href = season && financesTemplate ? financesTemplate.replace("__SEASON__", encodedSeason) : financesDefault;
 
       const url = new URL(window.location.href);

@@ -189,6 +189,13 @@ class ScorerCsvImportRouteTests(unittest.TestCase):
         season_files = list(Path(self.paths["season"]).glob("*.json"))
         self.assertEqual(season_files, [])
 
+        archived_csv = Path(self.temp_dir.name) / "data" / "matches" / "season-1-M99-OVR.csv"
+        self.assertTrue(archived_csv.exists())
+        archived_text = archived_csv.read_text(encoding="utf-8")
+        self.assertIn("M99-OVR", archived_text)
+        self.assertIn("National Ground", archived_text)
+        self.assertNotIn("Old Venue", archived_text)
+
         stats_page = self.client.get("/admin?tab=stats")
         self.assertEqual(stats_page.status_code, 200)
         self.assertIn("Global Team Stats", stats_page.get_data(as_text=True))

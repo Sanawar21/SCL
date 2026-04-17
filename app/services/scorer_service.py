@@ -157,6 +157,26 @@ class ScorerService:
         cleaned = cleaned.strip(".-_")
         return cleaned or "latest"
 
+    def _matches_archive_dir(self) -> Path:
+        target = self.config_path.parent / "matches"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _save_imported_csv(self, season_slug: str, match_id: str, rows: list[dict]):
+        if not rows:
+            return
+
+        safe_season = self._sanitize_filename_fragment((season_slug or "").strip().lower())
+        safe_match_id = self._sanitize_filename_fragment((match_id or "").strip())
+        file_path = self._matches_archive_dir() / f"{safe_season}-{safe_match_id}.csv"
+
+        fieldnames = list(rows[0].keys())
+        with file_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({name: row.get(name, "") for name in fieldnames})
+
     def load_config(self):
         if not self.config_path.exists():
             return self._normalize_config({})
@@ -1982,15 +2002,15 @@ class ScorerService:
                 text = payload.decode("utf-8")
 
         rows, substitution_log_player_ins = self._parse_match_csv_rows(text, file_name)
-        normalized_rows = self._normalize_rows_to_global_ids(rows, safe_season_slug)
-
         safe_match_override = (match_id_override or "").strip()
         safe_venue_override = (venue_override or "").strip()
-        for row in normalized_rows:
+        for row in rows:
             if safe_match_override:
                 row["Match ID"] = safe_match_override
             if safe_venue_override:
                 row["Venue"] = safe_venue_override
+
+        normalized_rows = self._normalize_rows_to_global_ids(rows, safe_season_slug)
 
         effective_match_id = (safe_match_override or normalized_rows[0].get("Match ID") or "").strip()
         if not effective_match_id:
@@ -2010,6 +2030,8 @@ class ScorerService:
 
         if registry_entry.get("has_uploaded_data") and not confirm_overwrite:
             raise MatchOverwriteConfirmationRequired(safe_season_slug, effective_match_id)
+
+        self._save_imported_csv(safe_season_slug, effective_match_id, rows)
 
         derived = self._derive_match_stats(
             normalized_rows,

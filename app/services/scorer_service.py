@@ -1498,6 +1498,7 @@ class ScorerService:
                     "player_id": player_id,
                     "player_name": player_name,
                     "matches": 0,
+                    "innings_batted": 0,
                     "runs": 0,
                     "balls_faced": 0,
                     "dismissed": 0,
@@ -1516,6 +1517,7 @@ class ScorerService:
 
             item["player_name"] = player_name
             item["matches"] += row_matches
+            item["innings_batted"] += self._safe_int(row.get("innings_batted"), 0)
             item["runs"] += self._safe_int(row.get("runs"), 0)
             item["balls_faced"] += self._safe_int(row.get("balls_faced"), 0)
             item["dismissed"] += self._safe_int(row.get("dismissed"), 0)
@@ -1536,6 +1538,7 @@ class ScorerService:
         aggregated = []
         for item in grouped.values():
             runs = self._safe_int(item.get("runs"), 0)
+            innings_batted = self._safe_int(item.get("innings_batted"), 0)
             balls_faced = self._safe_int(item.get("balls_faced"), 0)
             dismissed = self._safe_int(item.get("dismissed"), 0)
             balls_bowled = self._safe_int(item.get("balls_bowled"), 0)
@@ -1546,10 +1549,10 @@ class ScorerService:
 
             strike_rate = (runs * 100.0 / float(balls_faced)) if balls_faced else 0.0
             economy = (runs_conceded * 6.0 / float(balls_bowled)) if balls_bowled else 0.0
-            if dismissed > 0:
-                batting_average = runs / float(dismissed)
+            if innings_batted > 0:
+                batting_average = runs / float(innings_batted)
             else:
-                batting_average = float(runs) if runs > 0 else 0.0
+                batting_average = 0.0
 
             aggregated.append(
                 {
@@ -1559,7 +1562,7 @@ class ScorerService:
                     "economy": round(economy, 2),
                     "batting_average": round(batting_average, 2),
                     "fantasy_average": round((item.get("fantasy_score", 0) / float(matches)), 2) if matches else 0.0,
-                    "all_round_impact": runs + (wickets * 25),
+                    "all_round_impact": runs + (wickets * 15),
                 }
             )
 
@@ -1804,23 +1807,23 @@ class ScorerService:
                 ),
             },
             {
-                "title": "Highest Strike Rate (Min 5 Balls)",
-                "description": "Fastest scorers with minimum 5 balls faced.",
+                "title": "Highest Strike Rate (Min 12 Balls Faced)",
+                "description": "Fastest scorers with minimum 12 balls faced.",
                 "rows": top_players(
                     global_players,
                     sort_key=lambda row: (self._safe_float(row.get("strike_rate"), 0.0), self._safe_int(row.get("runs"), 0)),
                     value_text=lambda row: f"{self._safe_float(row.get('strike_rate'), 0.0):.2f}",
-                    predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                    predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 12,
                 ),
             },
             {
-                "title": "Best Economy (Min 5 Balls Bowled)",
-                "description": "Most efficient bowlers (lower economy is better).",
+                "title": "Best Economy (Min 12 Balls Bowled)",
+                "description": "Most efficient bowlers.",
                 "rows": top_players(
                     global_players,
                     sort_key=lambda row: (self._safe_float(row.get("economy"), 9999.0), -self._safe_int(row.get("wickets"), 0)),
                     value_text=lambda row: f"{self._safe_float(row.get('economy'), 0.0):.2f}",
-                    predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 5,
+                    predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 12,
                     reverse=False,
                 ),
             },
@@ -1844,18 +1847,18 @@ class ScorerService:
                 ),
             },
             {
-                "title": "Highest Batting Avg (Min 5 Balls)",
-                "description": "Best batting average with a minimum 5 balls faced.",
+                "title": "Highest Batting Avg (Min 3 Innings)",
+                "description": "Best batting average with a minimum 3 innings.",
                 "rows": top_players(
                     global_players,
                     sort_key=lambda row: (self._safe_float(row.get("batting_average"), 0.0), self._safe_int(row.get("runs"), 0)),
                     value_text=lambda row: f"{self._safe_float(row.get('batting_average'), 0.0):.2f}",
-                    predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                    predicate=lambda row: self._safe_int(row.get("innings_batted"), 0) >= 3,
                 ),
             },
             {
                 "title": "Best All-Round Impact",
-                "description": "Custom index: runs + (25 x wickets).",
+                "description": "Custom index: runs + (15 x wickets).",
                 "rows": top_players(
                     global_players,
                     sort_key=lambda row: (self._safe_int(row.get("all_round_impact"), 0), self._safe_int(row.get("fantasy_score"), 0)),
@@ -1924,23 +1927,23 @@ class ScorerService:
                     ),
                 },
                 {
-                    "title": "Highest Strike Rate (Min 5 Balls)",
+                    "title": "Highest Strike Rate (Min 12 Balls Faced)",
                     "description": "Fastest scoring pace this season.",
                     "rows": top_players(
                         season_players,
                         sort_key=lambda row: (self._safe_float(row.get("strike_rate"), 0.0), self._safe_int(row.get("runs"), 0)),
                         value_text=lambda row: f"{self._safe_float(row.get('strike_rate'), 0.0):.2f}",
-                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 12,
                     ),
                 },
                 {
-                    "title": "Best Economy (Min 5 Balls Bowled)",
-                    "description": "Most efficient bowlers for this season (lower is better).",
+                    "title": "Best Economy (Min 12 Balls Bowled)",
+                    "description": "Most efficient bowlers for this season.",
                     "rows": top_players(
                         season_players,
                         sort_key=lambda row: (self._safe_float(row.get("economy"), 9999.0), -self._safe_int(row.get("wickets"), 0)),
                         value_text=lambda row: f"{self._safe_float(row.get('economy'), 0.0):.2f}",
-                        predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 5,
+                        predicate=lambda row: self._safe_int(row.get("balls_bowled"), 0) >= 12,
                         reverse=False,
                     ),
                 },
@@ -1963,14 +1966,24 @@ class ScorerService:
                     ),
                 },
                 {
-                    "title": "Highest Batting Avg (Min 5 Balls)",
+                    "title": "Highest Batting Avg (Min 3 Innings)",
                     "description": "Best batting average in this season.",
                     "rows": top_players(
                         season_players,
                         sort_key=lambda row: (self._safe_float(row.get("batting_average"), 0.0), self._safe_int(row.get("runs"), 0)),
                         value_text=lambda row: f"{self._safe_float(row.get('batting_average'), 0.0):.2f}",
-                        predicate=lambda row: self._safe_int(row.get("balls_faced"), 0) >= 5,
+                        predicate=lambda row: self._safe_int(row.get("innings_batted"), 0) >= 3,
                     ),
+                },
+                {
+                "title": "Best All-Round Impact",
+                "description": "Custom index: runs + (15 x wickets).",
+                "rows": top_players(
+                    global_players,
+                    sort_key=lambda row: (self._safe_int(row.get("all_round_impact"), 0), self._safe_int(row.get("fantasy_score"), 0)),
+                    value_text=lambda row: str(self._safe_int(row.get("all_round_impact"), 0)),
+                    meta_text=lambda row: f"R {self._safe_int(row.get('runs'), 0)} | W {self._safe_int(row.get('wickets'), 0)}",
+                ),
                 },
                 {
                     "title": "Best Fantasy Team",
@@ -3727,7 +3740,7 @@ class ScorerService:
 
         for agg in player_aggregate.values():
             agg["strike_rate"] = round((agg["runs"] * 100.0 / agg["balls_faced"]), 2) if agg["balls_faced"] else 0.0
-            agg["batting_average"] = round((agg["runs"] / agg["dismissed"]), 2) if agg["dismissed"] else float(agg["runs"])
+            agg["batting_average"] = round((agg["runs"] / agg["innings_batted"]), 2) if agg["innings_batted"] else 0.0
             agg["economy"] = round((agg["runs_conceded"] * 6.0 / agg["balls_bowled"]), 2) if agg["balls_bowled"] else 0.0
             agg["overs_bowled"] = self._overs_string(agg["balls_bowled"])
             agg["fantasy_average"] = self._round_nearest_int(agg["fantasy_score"] / agg["matches"], 0) if agg["matches"] else 0

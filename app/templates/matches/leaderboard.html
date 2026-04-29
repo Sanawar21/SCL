@@ -23,7 +23,7 @@
     <div class="row-wrap">
       <a class="btn {% if active_scope == 'global' %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.leaderboard_home', scope='global') }}">Global</a>
       {% for season in seasons %}
-      <a class="btn {% if active_scope == 'season' and season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.leaderboard_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      <a class="btn {% if active_scope == 'season' and season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.leaderboard_by_season', season_slug=season.slug) }}">{{ season.name }}</a>
       {% endfor %}
       {% if not seasons %}
       <p>No seasons available yet.</p>

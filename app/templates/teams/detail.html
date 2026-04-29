@@ -53,7 +53,7 @@
         <tbody>
           {% for row in profile.season_stats %}
           <tr>
-            <td>{{ row.season_slug }}</td>
+            <td>{{ row.season_name or row.season_slug }}</td>
             <td>{{ row.matches }}</td>
             <td>{{ row.wins }}</td>
             <td>{{ row.losses }}</td>
@@ -78,7 +78,7 @@
     <h3>Season Squads</h3>
     {% for season in profile.squads_by_season %}
     <div class="card-nested">
-      <h4>{{ season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
+      <h4>{{ season.season_name or season.season_slug }}{% if season.team_name %} - {{ season.team_name }}{% endif %}</h4>
       <p><strong>Manager:</strong>
         {% if season.manager_player_slug %}
         <a href="{{ url_for('landing.player_profile', player_slug=season.manager_player_slug) }}">{{ season.manager_name }}</a>

@@ -32,7 +32,6 @@
         {% for season in seasons %}
           <tr>
             <td>{{ season.name }}</td>
-            <td>{{ season.slug }}</td>
             <td>{{ season.entry_count }}</td>
             <td>{{ 'Open' if season.submissions_open else 'Closed' }}</td>
             <td>

@@ -166,7 +166,7 @@ def leaderboard_by_season(season_slug):
         active_scope=leaderboard.get("scope") or "season",
         seasons=leaderboard.get("seasons") or [],
         selected_season=leaderboard.get("selected_season") or safe_season_slug,
-        active_title=leaderboard.get("active_title") or f"Season Leaderboards: {safe_season_slug}",
+        active_title=leaderboard.get("active_title") or f"Season Leaderboards: {scorer_service._get_season_name(safe_season_slug)}",
         active_boards=leaderboard.get("active_boards") or [],
     )
 

@@ -22,7 +22,7 @@
     <p>Select a season to view read-only team purse balances.</p>
     <div class="row-wrap">
       {% for season in seasons %}
-      <a class="btn {% if season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.finances_by_season', season_slug=season.slug) }}">{{ season.name }} ({{ season.slug }})</a>
+      <a class="btn {% if season.slug == selected_season %}btn-secondary{% else %}btn-outline{% endif %}" href="{{ url_for('landing.finances_by_season', season_slug=season.slug) }}">{{ season.name }}</a>
       {% endfor %}
       {% if not seasons %}
       <p>No seasons available yet.</p>

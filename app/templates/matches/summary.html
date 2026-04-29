@@ -7,14 +7,14 @@
 <a href="{{ url_for('landing.index') }}">Hub</a>
 <a href="{{ url_for('landing.teams_home') }}">Teams</a>
 <a href="{{ url_for('landing.matches_home', season=summary.season_slug) }}">Matches</a>
-<a href="{{ url_for('landing.matches_by_season', season_slug=summary.season_slug) }}">{{ summary.season_slug }}</a>
+<a href="{{ url_for('landing.matches_by_season', season_slug=summary.season_slug) }}">{{ summary.season_name or summary.season_slug }}</a>
 {% endblock %}
 
 {% block content %}
 <section class="stack">
   <div class="card">
     <h2>{{ summary.match_id }}{% if summary.match_title %} - {{ summary.match_title }}{% endif %}</h2>
-    <p><strong>Season:</strong> {{ summary.season_slug }}</p>
+    <p><strong>Season:</strong> {{ summary.season_name or summary.season_slug }}</p>
     <p><strong>Fixture:</strong> {{ summary.between or '-' }}</p>
     <p><strong>Match #:</strong> {{ summary.match_number or '-' }}</p>
 

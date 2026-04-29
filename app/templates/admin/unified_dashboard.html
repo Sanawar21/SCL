@@ -306,7 +306,7 @@
         <select name="season_slug" required>
           <option value="">Select season</option>
           {% for season in finance_seasons %}
-          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }}</option>
           {% endfor %}
         </select>
         <select name="team_id" required>
@@ -330,7 +330,7 @@
         <select name="season_slug" required>
           <option value="">Select season</option>
           {% for season in finance_seasons %}
-          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }}</option>
           {% endfor %}
         </select>
         <input name="amount" type="number" min="1" step="1" placeholder="Transfer amount" required>
@@ -356,7 +356,7 @@
         <select name="season_slug" required>
           <option value="">Select season</option>
           {% for season in finance_seasons %}
-          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          <option value="{{ season.slug }}" {% if season.slug == finance_selected_season %}selected{% endif %}>{{ season.name }}</option>
           {% endfor %}
         </select>
         <select name="player_id" required>
@@ -649,7 +649,7 @@
         <select name="season_slug">
           <option value="">Use latest available season</option>
           {% for season in scorer_available_seasons %}
-          <option value="{{ season.slug }}" {% if season.slug == scorer_config.season_slug %}selected{% endif %}>{{ season.name }} ({{ season.slug }})</option>
+          <option value="{{ season.slug }}" {% if season.slug == scorer_config.season_slug %}selected{% endif %}>{{ season.name }}</option>
           {% endfor %}
         </select>
         <input name="max_overs" type="number" min="1" value="{{ scorer_config.max_overs }}" placeholder="Max overs">

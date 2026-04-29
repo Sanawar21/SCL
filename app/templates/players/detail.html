@@ -79,7 +79,7 @@
         <tbody>
           {% for row in profile.season_wise_stats %}
           <tr>
-            <td>{{ row.season_slug }}</td>
+            <td>{{ row.season_name or row.season_slug }}</td>
             <td>{{ row.matches }}</td>
             <td>{{ row.runs }}</td>
             <td>{{ row.wickets }}</td>

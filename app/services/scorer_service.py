@@ -217,6 +217,11 @@ class ScorerService:
         seasons = self.season_store_manager.list_slugs()
         return seasons[0] if seasons else ""
 
+    def _get_season_name(self, slug: str):
+        """Get the display name for a season slug."""
+        meta = self._season_meta(slug)
+        return meta.get("name") or slug
+
     def _load_tables(self, season_slug: str):
         safe_slug = (season_slug or "").strip().lower()
         if safe_slug and self.season_store_manager.has_season(safe_slug):
@@ -752,6 +757,7 @@ class ScorerService:
             if season_slug not in grouped:
                 grouped[season_slug] = {
                     "season_slug": season_slug,
+                        "season_name": self._get_season_name(season_slug),
                     "matches": 0,
                     "wins": 0,
                     "losses": 0,
@@ -889,6 +895,7 @@ class ScorerService:
             squad_rows.append(
                 {
                     "season_slug": season_slug,
+                    "season_name": self._get_season_name(season_slug),
                     "team_name": (row.get("team_name") or safe_team_id).strip(),
                     "manager_global_player_id": manager_id,
                     "manager_name": manager_name,
@@ -1091,6 +1098,7 @@ class ScorerService:
             if season_slug not in seasonwise:
                 seasonwise[season_slug] = {
                     "season_slug": season_slug,
+                        "season_name": self._get_season_name(season_slug),
                     "matches": 0,
                     "runs": 0,
                     "wickets": 0,
@@ -1699,7 +1707,7 @@ class ScorerService:
                 "selected_season": selected_season,
                 "global_boards": [],
                 "season_boards": [],
-                "active_title": "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {selected_season}",
+                "active_title": "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {self._get_season_name(selected_season)}",
                 "active_boards": [],
             }
 
@@ -2017,7 +2025,7 @@ class ScorerService:
             ]
 
         active_boards = global_boards if active_scope == "global" else season_boards
-        active_title = "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {selected_season}"
+        active_title = "Global Leaderboards" if active_scope == "global" else f"Season Leaderboards: {self._get_season_name(selected_season)}"
 
         return {
             "scope": active_scope,
@@ -2483,6 +2491,7 @@ class ScorerService:
 
         return {
             "season_slug": safe_season_slug,
+            "season_name": self._get_season_name(safe_season_slug),
             "match_id": safe_match_id,
             "match_key": (match_row or {}).get("match_key") or (registry_entry or {}).get("match_key") or self._match_key(safe_season_slug, safe_match_id),
             "between": between,

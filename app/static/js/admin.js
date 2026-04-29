@@ -737,6 +737,7 @@ if (scorerImportForm) {
       if (forceOverwrite) {
         payload.set("confirm_overwrite", "true");
       }
+      payload.set("include_in_fantasy_points", scorerImportForm.querySelector('input[name="include_in_fantasy_points"]')?.checked ? "true" : "false");
       return postForm("/admin/scorer/import", payload);
     };
 

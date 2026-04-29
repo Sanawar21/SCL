@@ -3274,7 +3274,7 @@ class ScorerService:
             if player_id not in player_rows:
                 continue
             # Actual fantasy points include a flat per-match bonus over calculated score.
-            if bool(fantasy.get("is_substitute", False)):
+            if bool(fantasy.get("is_substitute", False)) or not include_in_fantasy_points:
                 actual_score = 0
             else:
                 actual_score = self._round_nearest_int(float(fantasy.get("score", 0.0)) + self.FANTASY_MATCH_BONUS_POINTS, 0)
